@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "house-price-prediction"
+version = "0.1.0"
+description = "End-to-end house price prediction pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "House Price Prediction Team" }]
+dependencies = [
+  "numpy>=1.26.0",
+  "pandas>=2.2.0",
+  "scikit-learn>=1.4.0",
+  "joblib>=1.3.0",
+  "python-dotenv>=1.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "jupyter>=1.0.0",
+  "matplotlib>=3.8.0",
+  "seaborn>=0.13.0"
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

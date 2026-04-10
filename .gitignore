@@ -1,0 +1,27 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Data and artifacts
+models/*.joblib
+data/processed/*
+!data/processed/.gitkeep
+
+# Environment files
+.env
+
+# OS / editor files
+.DS_Store
+.vscode/settings.json
