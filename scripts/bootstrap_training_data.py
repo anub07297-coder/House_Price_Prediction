@@ -1,83 +1,126 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
+import requests
 
 
-def build_dataset(row_count: int = 500, random_state: int = 42) -> pd.DataFrame:
-    rng = np.random.default_rng(random_state)
+def _fetch_capabilities(base_url: str) -> dict:
+    try:
+        response = requests.get(f"{base_url.rstrip('/')}/v1/meta/capabilities", timeout=30)
+    except requests.RequestException as exc:
+        raise SystemExit(
+            f"Could not reach API capabilities endpoint at {base_url.rstrip('/')}/v1/meta/capabilities: {exc}"
+        ) from exc
+    response.raise_for_status()
+    return response.json()
 
-    lot_area = rng.integers(4500, 18001, size=row_count)
-    overall_qual = rng.integers(4, 11, size=row_count)
-    overall_cond = rng.integers(4, 10, size=row_count)
-    year_built = rng.integers(1960, 2023, size=row_count)
-    year_remod = np.clip(year_built + rng.integers(0, 16, size=row_count), 1970, 2024)
-    gr_liv_area = rng.integers(900, 3201, size=row_count)
-    full_bath = rng.integers(1, 4, size=row_count)
-    half_bath = rng.integers(0, 3, size=row_count)
-    bedrooms = rng.integers(2, 7, size=row_count)
-    total_rooms = np.maximum(bedrooms + rng.integers(2, 6, size=row_count), 4)
-    fireplaces = rng.integers(0, 3, size=row_count)
-    garage_cars = rng.integers(0, 4, size=row_count)
-    garage_area = garage_cars * rng.integers(180, 320, size=row_count)
-    neighborhoods = rng.choice(["CollgCr", "NAmes", "OldTown", "Edwards", "Somerst"], size=row_count)
-    house_styles = rng.choice(["1Story", "2Story", "SLvl"], size=row_count)
 
-    neighborhood_bonus = pd.Series(neighborhoods).map(
-        {"CollgCr": 30000, "NAmes": 18000, "OldTown": 8000, "Edwards": 12000, "Somerst": 35000}
+def _fetch_candidate_page(
+    base_url: str,
+    limit: int,
+    offset: int,
+    min_completeness_score: float,
+    include_reused: bool,
+) -> dict:
+    try:
+        response = requests.get(
+            f"{base_url.rstrip('/')}/v1/meta/live-feature-candidates",
+            params={
+                "limit": limit,
+                "offset": offset,
+                "min_completeness_score": min_completeness_score,
+                "include_reused": str(include_reused).lower(),
+            },
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise SystemExit(
+            "Could not fetch live feature candidates from API: "
+            f"{base_url.rstrip('/')}/v1/meta/live-feature-candidates ({exc})"
+        ) from exc
+    response.raise_for_status()
+    return response.json()
+
+
+def _build_training_frame(
+    candidates: list[dict],
+    expected_features: list[str],
+    target_column: str = "SalePrice",
+) -> pd.DataFrame:
+    rows: list[dict] = []
+    for item in candidates:
+        feature_map = item.get("features", {})
+        row = {feature_name: feature_map.get(feature_name) for feature_name in expected_features}
+        row[target_column] = float(item.get("predicted_price", 0.0))
+        rows.append(row)
+
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return frame
+
+    # Drop rows that are missing any required model feature value.
+    frame = frame.dropna(subset=expected_features)
+    frame[target_column] = frame[target_column].astype(float)
+    return frame
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Bootstrap training data from live API feature candidates (no CSV source).",
     )
-    house_style_bonus = pd.Series(house_styles).map({"1Story": 6000, "2Story": 12000, "SLvl": 9000})
-    noise = rng.normal(0, 12000, size=row_count)
+    parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--output", default="data/processed/live_feature_store.jsonl")
+    parser.add_argument("--min-completeness-score", type=float, default=0.9)
+    parser.add_argument("--include-reused", action="store_true")
+    parser.add_argument("--page-size", type=int, default=200)
+    parser.add_argument("--max-rows", type=int, default=5000)
+    parser.add_argument("--target-column", default="SalePrice")
+    args = parser.parse_args()
 
-    sale_price = (
-        45000
-        + (lot_area * 2.4)
-        + (overall_qual * 19000)
-        + (overall_cond * 2500)
-        + ((year_built - 1950) * 650)
-        + ((year_remod - year_built) * 450)
-        + (gr_liv_area * 95)
-        + (full_bath * 5500)
-        + (half_bath * 2200)
-        + (bedrooms * 1800)
-        + (total_rooms * 1400)
-        + (fireplaces * 4200)
-        + (garage_cars * 8500)
-        + (garage_area * 18)
-        + neighborhood_bonus.to_numpy()
-        + house_style_bonus.to_numpy()
-        + noise
-    )
+    capabilities = _fetch_capabilities(args.base_url)
+    expected_features: list[str] = capabilities.get("model_expected_features", [])
+    if not expected_features:
+        raise SystemExit("API did not return model_expected_features; cannot build feature store.")
 
-    df = pd.DataFrame(
-        {
-            "LotArea": lot_area,
-            "OverallQual": overall_qual,
-            "OverallCond": overall_cond,
-            "YearBuilt": year_built,
-            "YearRemodAdd": year_remod,
-            "GrLivArea": gr_liv_area,
-            "FullBath": full_bath,
-            "HalfBath": half_bath,
-            "BedroomAbvGr": bedrooms,
-            "TotRmsAbvGrd": total_rooms,
-            "Fireplaces": fireplaces,
-            "GarageCars": garage_cars,
-            "GarageArea": garage_area,
-            "Neighborhood": neighborhoods,
-            "HouseStyle": house_styles,
-            "SalePrice": sale_price.round(0).astype(int),
-        }
+    all_items: list[dict] = []
+    offset = 0
+    while len(all_items) < args.max_rows:
+        page = _fetch_candidate_page(
+            base_url=args.base_url,
+            limit=min(args.page_size, args.max_rows - len(all_items)),
+            offset=offset,
+            min_completeness_score=args.min_completeness_score,
+            include_reused=args.include_reused,
+        )
+        items = page.get("items", [])
+        if not items:
+            break
+        all_items.extend(items)
+        offset += len(items)
+
+    dataset = _build_training_frame(
+        candidates=all_items,
+        expected_features=expected_features,
+        target_column=args.target_column,
     )
-    return df
+    if dataset.empty:
+        raise SystemExit(
+            "No valid live feature rows found. "
+            "Run more live predictions or lower --min-completeness-score."
+        )
+
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    dataset.to_json(output_path, orient="records", lines=True)
+
+    print(f"Live feature store written to: {output_path}")
+    print(f"Rows: {len(dataset)}")
+    print(f"Columns: {len(dataset.columns)}")
+    print(f"Features: {len(expected_features)}")
 
 
 if __name__ == "__main__":
-    output_path = Path("data/raw/housing.csv")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    dataset = build_dataset()
-    dataset.to_csv(output_path, index=False)
-    print(f"Synthetic training dataset written to: {output_path}")
-    print(f"Rows: {len(dataset)}")
+    main()

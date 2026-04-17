@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pandas as pd
@@ -65,21 +66,46 @@ class PredictionRuntime:
     def _mock_predict(features: dict[str, Any]) -> float:
         lot_area = float(features.get("LotArea", 8500))
         overall_qual = float(features.get("OverallQual", 6))
+        overall_cond = float(features.get("OverallCond", 5))
         gr_liv_area = float(features.get("GrLivArea", 1500))
         garage_cars = float(features.get("GarageCars", 2))
+        garage_area = float(features.get("GarageArea", 480))
         full_bath = float(features.get("FullBath", 2))
+        half_bath = float(features.get("HalfBath", 0))
+        total_rooms = float(features.get("TotRmsAbvGrd", 6))
         fireplaces = float(features.get("Fireplaces", 1))
         year_built = float(features.get("YearBuilt", 1995))
+        year_remod_add = float(features.get("YearRemodAdd", year_built))
+        neighborhood = str(features.get("Neighborhood", "Unknown"))
+        house_style = str(features.get("HouseStyle", "1Story"))
 
         age_premium = max(year_built - 1950, 0) * 700
+        remodel_premium = max(year_remod_add - year_built, 0) * 220
+        neighborhood_hash = int(
+            hashlib.sha256(neighborhood.encode("utf-8")).hexdigest()[:8],
+            16,
+        )
+        neighborhood_adjustment = (neighborhood_hash % 9 - 4) * 1800
+        house_style_adjustment = {
+            "2Story": 6000,
+            "SLvl": 3500,
+        }.get(house_style, 0)
+
         predicted_price = (
             50000
             + (lot_area * 2.3)
             + (overall_qual * 18000)
+            + (overall_cond * 3200)
             + (gr_liv_area * 92)
+            + (total_rooms * 1400)
             + (garage_cars * 9500)
+            + (garage_area * 11)
             + (full_bath * 6500)
+            + (half_bath * 2600)
             + (fireplaces * 4500)
             + age_premium
+            + remodel_premium
+            + neighborhood_adjustment
+            + house_style_adjustment
         )
         return round(predicted_price, 2)

@@ -462,6 +462,73 @@ class HealthResponse(BaseModel):
     provider_timeout_seconds: float
     provider_max_retries: int
     prediction_reuse_max_age_hours: int
+    provider_response_cache_max_age_hours: int
     feature_policy_name: str
     feature_policy_version: str
     feature_policy_state_override_count: int
+    live_mode_ready: bool
+    live_mode_issues: list[str] = Field(default_factory=list)
+
+
+class ApiEndpointDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    method: str
+    path: str
+    purpose: str
+
+
+class ApiExamplePayloads(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prediction_request: AddressPayload
+    normalization_request: AddressPayload
+    baseline_request: AddressPayload
+
+
+class ApiCapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: str
+    generated_at: datetime
+    runtime: RuntimeSummary
+    provider_policy: ProviderPolicySummary
+    model_expected_features: list[str]
+    live_mode_ready: bool
+    live_mode_issues: list[str] = Field(default_factory=list)
+    endpoints: list[ApiEndpointDescriptor]
+    examples: ApiExamplePayloads
+
+
+class LiveFeatureCandidateItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prediction_id: UUID
+    request_id: UUID
+    submitted_at: datetime
+    generated_at: datetime
+    predicted_price: float
+    completeness_score: float
+    was_reused: bool
+    model_name: str
+    model_version: str
+    selected_feature_policy_name: str | None = None
+    selected_feature_policy_version: str | None = None
+    feature_source: str | None = None
+    provider_name: str | None = None
+    normalized_address: NormalizedAddress
+    features: dict[str, Any]
+
+
+class LiveFeatureCandidatesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: str
+    generated_at: datetime
+    total: int
+    limit: int
+    offset: int
+    min_completeness_score: float
+    include_reused: bool
+    items: list[LiveFeatureCandidateItem]

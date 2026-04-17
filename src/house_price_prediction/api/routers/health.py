@@ -15,6 +15,16 @@ def get_health(
     settings: Settings = Depends(get_settings),
     prediction_runtime: PredictionRuntime = Depends(get_prediction_runtime),
 ) -> HealthResponse:
+    live_mode_issues: list[str] = []
+    if settings.enable_mock_predictor:
+        live_mode_issues.append("Mock predictor is enabled; set ENABLE_MOCK_PREDICTOR=false.")
+    if settings.geocoding_provider.strip().lower() == "fake":
+        live_mode_issues.append("Geocoding provider is fake; use a live geocoder provider.")
+    if settings.property_data_provider.strip().lower() == "fake":
+        live_mode_issues.append("Property data provider is fake; use a live property provider.")
+    if not prediction_runtime.is_available():
+        live_mode_issues.append("Model artifact is unavailable for inference.")
+
     return HealthResponse(
         status="ok",
         environment=settings.app_env,
@@ -28,7 +38,10 @@ def get_health(
         provider_timeout_seconds=settings.provider_timeout_seconds,
         provider_max_retries=settings.provider_max_retries,
         prediction_reuse_max_age_hours=settings.prediction_reuse_max_age_hours,
+        provider_response_cache_max_age_hours=settings.provider_response_cache_max_age_hours,
         feature_policy_name=settings.feature_policy_name,
         feature_policy_version=settings.feature_policy_version,
         feature_policy_state_override_count=len(settings.feature_policy_state_overrides or {}),
+        live_mode_ready=len(live_mode_issues) == 0,
+        live_mode_issues=live_mode_issues,
     )

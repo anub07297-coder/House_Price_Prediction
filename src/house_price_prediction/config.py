@@ -28,6 +28,7 @@ class Settings:
     prediction_reuse_max_age_hours: int
     provider_timeout_seconds: float
     provider_max_retries: int
+    provider_response_cache_max_age_hours: int = 24
     feature_policy_name: str = "balanced-v1"
     feature_policy_version: str = "v1"
     feature_policy_state_overrides: dict[str, str] = field(default_factory=dict)
@@ -63,7 +64,7 @@ def load_settings() -> Settings:
     load_dotenv()
 
     return Settings(
-        raw_data_path=Path(os.getenv("RAW_DATA_PATH", "data/raw/Housing.csv")),
+        raw_data_path=Path(os.getenv("RAW_DATA_PATH", "data/processed/live_feature_store.jsonl")),
         target_column=os.getenv("TARGET_COLUMN", "SalePrice"),
         model_path=Path(os.getenv("MODEL_PATH", "models/house_price_model.joblib")),
         test_size=float(os.getenv("TEST_SIZE", "0.2")),
@@ -81,6 +82,9 @@ def load_settings() -> Settings:
         property_data_provider=os.getenv("PROPERTY_DATA_PROVIDER", "fake"),
         geocoding_provider=os.getenv("GEOCODING_PROVIDER", "fake"),
         prediction_reuse_max_age_hours=int(os.getenv("PREDICTION_REUSE_MAX_AGE_HOURS", "24")),
+        provider_response_cache_max_age_hours=int(
+            os.getenv("PROVIDER_RESPONSE_CACHE_MAX_AGE_HOURS", "24")
+        ),
         provider_timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "3.0")),
         provider_max_retries=int(os.getenv("PROVIDER_MAX_RETRIES", "2")),
         feature_policy_name=os.getenv("FEATURE_POLICY_NAME", "balanced-v1"),

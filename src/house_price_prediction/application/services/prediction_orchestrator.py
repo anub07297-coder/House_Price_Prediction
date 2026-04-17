@@ -26,6 +26,9 @@ from house_price_prediction.application.services.scenario_registry import (
     get_scenarios_by_ids,
 )
 from house_price_prediction.domain.contracts.prediction_contracts import (
+    ApiCapabilitiesResponse,
+    ApiEndpointDescriptor,
+    ApiExamplePayloads,
     AddressBaselineResponse,
     AddressPayload,
     BaselineExpectationsInput,
@@ -39,6 +42,7 @@ from house_price_prediction.domain.contracts.prediction_contracts import (
     FeaturePolicySimulationResponse,
     FullAuditRequest,
     FullAuditResponse,
+    LiveFeatureCandidatesResponse,
     NormalizedAddress,
     PredictionDetailResponse,
     PredictionListResponse,
@@ -70,6 +74,7 @@ class Brain:
         property_enrichment_service: PropertyEnrichmentService,
         geocoding_provider: GeocodingProvider,
         prediction_reuse_max_age_hours: int,
+        provider_response_cache_max_age_hours: int,
         settings: Settings,
     ) -> None:
         self._session_factory = session_factory
@@ -82,6 +87,7 @@ class Brain:
             property_enrichment_service=property_enrichment_service,
             geocoding_provider=geocoding_provider,
             prediction_reuse_max_age_hours=prediction_reuse_max_age_hours,
+            provider_response_cache_max_age_hours=provider_response_cache_max_age_hours,
         )
 
     def normalize_address(self, payload: AddressPayload) -> NormalizedAddress:
@@ -339,6 +345,22 @@ class Brain:
                 sort=sort,
             )
 
+    def get_live_feature_candidates(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        min_completeness_score: float = 0.0,
+        include_reused: bool = False,
+    ) -> LiveFeatureCandidatesResponse:
+        with self._session_factory() as session:
+            repository = PredictionRepository(session)
+            return repository.list_live_feature_candidates(
+                limit=limit,
+                offset=offset,
+                min_completeness_score=min_completeness_score,
+                include_reused=include_reused,
+            )
+
     def get_dashboard_bootstrap(self, limit: int = 5) -> DashboardBootstrapResponse:
         recent_predictions = self.list_recent_predictions(limit=limit)
         event_summary = None
@@ -368,7 +390,7 @@ class Brain:
 
         return DashboardBootstrapResponse(
             status="ok",
-            contract_version="2026-04-14",
+            contract_version="2026-04-16",
             runtime=RuntimeSummary(
                 app_name=self._settings.app_name,
                 environment=self._settings.app_env,
@@ -395,6 +417,117 @@ class Brain:
                 prediction_trace="/v1/predictions/{prediction_id}/trace",
                 prediction_create="/v1/predictions",
                 address_normalize="/v1/properties/normalize",
+            ),
+        )
+
+    def get_api_capabilities(self) -> ApiCapabilitiesResponse:
+        live_mode_issues: list[str] = []
+        if self._settings.enable_mock_predictor:
+            live_mode_issues.append("Mock predictor is enabled; set ENABLE_MOCK_PREDICTOR=false.")
+        if self._settings.geocoding_provider.strip().lower() == "fake":
+            live_mode_issues.append("Geocoding provider is fake; use a live geocoder provider.")
+        if self._settings.property_data_provider.strip().lower() == "fake":
+            live_mode_issues.append("Property data provider is fake; use a live property provider.")
+        if not self._prediction_runtime.is_available():
+            live_mode_issues.append("Model artifact is unavailable for inference.")
+
+        endpoints = [
+            ApiEndpointDescriptor(
+                name="health",
+                method="GET",
+                path="/v1/health",
+                purpose="Runtime and live-readiness status.",
+            ),
+            ApiEndpointDescriptor(
+                name="normalize",
+                method="POST",
+                path="/v1/properties/normalize",
+                purpose="Normalize and geocode a user-entered address.",
+            ),
+            ApiEndpointDescriptor(
+                name="create_prediction",
+                method="POST",
+                path="/v1/predictions",
+                purpose="Create a prediction using live providers and model inference.",
+            ),
+            ApiEndpointDescriptor(
+                name="prediction_detail",
+                method="GET",
+                path="/v1/predictions/{prediction_id}",
+                purpose="Inspect provider responses, features, and final prediction details.",
+            ),
+            ApiEndpointDescriptor(
+                name="address_baseline",
+                method="POST",
+                path="/v1/validation/address-baseline",
+                purpose="Run a non-persistent baseline check for a single address.",
+            ),
+            ApiEndpointDescriptor(
+                name="full_audit",
+                method="POST",
+                path="/v1/validation/full-audit",
+                purpose="End-to-end audit with baseline, prediction, trace, and issues summary.",
+            ),
+            ApiEndpointDescriptor(
+                name="scenario_batch",
+                method="POST",
+                path="/v1/validation/run-scenario-batch",
+                purpose="Automated batch pipeline checks for registered scenarios.",
+            ),
+            ApiEndpointDescriptor(
+                name="api_capabilities",
+                method="GET",
+                path="/v1/meta/capabilities",
+                purpose="Self-discovery contract for frontend and ML integration.",
+            ),
+            ApiEndpointDescriptor(
+                name="live_feature_candidates",
+                method="GET",
+                path="/v1/meta/live-feature-candidates",
+                purpose=(
+                    "Clean feature rows from live traffic for feature engineering and "
+                    "training-candidate dataset building."
+                ),
+            ),
+        ]
+
+        sample_address = AddressPayload(
+            address_line_1="1600 Pennsylvania Ave NW",
+            city="Washington",
+            state="DC",
+            postal_code="20500",
+            country="US",
+        )
+
+        return ApiCapabilitiesResponse(
+            contract_version="2026-04-17",
+            generated_at=datetime.now(UTC),
+            runtime=RuntimeSummary(
+                app_name=self._settings.app_name,
+                environment=self._settings.app_env,
+                model_name=self._settings.model_name,
+                model_version=self._settings.model_version,
+                model_available=self._prediction_runtime.is_available(),
+                mock_predictor_enabled=self._settings.enable_mock_predictor,
+            ),
+            provider_policy=ProviderPolicySummary(
+                property_data_provider=self._settings.property_data_provider,
+                geocoding_provider=self._settings.geocoding_provider,
+                provider_timeout_seconds=self._settings.provider_timeout_seconds,
+                provider_max_retries=self._settings.provider_max_retries,
+                prediction_reuse_max_age_hours=self._settings.prediction_reuse_max_age_hours,
+                feature_policy_name=self._settings.feature_policy_name,
+                feature_policy_version=self._settings.feature_policy_version,
+                feature_policy_state_overrides=self._settings.feature_policy_state_overrides or {},
+            ),
+            model_expected_features=list(self._prediction_runtime.expected_feature_names()),
+            live_mode_ready=len(live_mode_issues) == 0,
+            live_mode_issues=live_mode_issues,
+            endpoints=endpoints,
+            examples=ApiExamplePayloads(
+                prediction_request=sample_address,
+                normalization_request=sample_address,
+                baseline_request=sample_address,
             ),
         )
 
