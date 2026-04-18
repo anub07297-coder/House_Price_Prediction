@@ -38,6 +38,7 @@ from house_price_prediction.infrastructure.providers.resilient import (
     ProviderExecutionError,
     ResilientPropertyDataProvider,
 )
+from house_price_prediction.data import load_dataset
 from house_price_prediction.model import load_model_artifact, save_model_artifact, train_and_save_model
 
 
@@ -140,9 +141,14 @@ def test_health_endpoint_reports_runtime_state(tmp_path: Path):
         assert payload["geocoding_provider"] == "fake"
         assert payload["provider_timeout_seconds"] == 3.0
         assert payload["provider_max_retries"] == 2
+        assert payload["provider_response_cache_max_age_hours"] == 24
         assert payload["feature_policy_name"] == "balanced-v1"
         assert payload["feature_policy_version"] == "v1"
         assert payload["feature_policy_state_override_count"] == 0
+        assert payload["live_mode_ready"] is False
+        assert any("Mock predictor" in issue for issue in payload["live_mode_issues"])
+        assert any("Geocoding provider is fake" in issue for issue in payload["live_mode_issues"])
+        assert any("Property data provider is fake" in issue for issue in payload["live_mode_issues"])
 
 
 def test_predictions_list_endpoint_returns_recent_predictions(tmp_path: Path):
@@ -192,6 +198,7 @@ def test_dashboard_bootstrap_returns_runtime_policy_and_recent_predictions(tmp_p
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
+    assert payload["contract_version"] == "2026-04-16"
     assert payload["runtime"]["app_name"] == settings.app_name
     assert payload["runtime"]["model_version"] == settings.model_version
     assert payload["provider_policy"]["geocoding_provider"] == settings.geocoding_provider
@@ -206,6 +213,114 @@ def test_dashboard_bootstrap_returns_runtime_policy_and_recent_predictions(tmp_p
     assert payload["event_summary"]["total_events"] >= 1
     assert payload["event_summary"]["latest_event_name"] is not None
     assert isinstance(payload["event_summary"]["recent_event_names"], list)
+
+
+def test_api_capabilities_endpoint_exposes_frontend_ml_contract(tmp_path: Path):
+    settings = build_test_settings(tmp_path)
+
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/v1/meta/capabilities")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["contract_version"] == "2026-04-17"
+    assert payload["runtime"]["app_name"] == settings.app_name
+    assert payload["runtime"]["mock_predictor_enabled"] is True
+    assert payload["provider_policy"]["property_data_provider"] == settings.property_data_provider
+    assert payload["provider_policy"]["geocoding_provider"] == settings.geocoding_provider
+    assert isinstance(payload["model_expected_features"], list)
+    assert "LotArea" in payload["model_expected_features"]
+    assert payload["live_mode_ready"] is False
+    assert any("Mock predictor" in issue for issue in payload["live_mode_issues"])
+    endpoint_names = {item["name"] for item in payload["endpoints"]}
+    assert "create_prediction" in endpoint_names
+    assert "api_capabilities" in endpoint_names
+    assert "live_feature_candidates" in endpoint_names
+    assert payload["examples"]["prediction_request"]["address_line_1"] == "1600 Pennsylvania Ave NW"
+
+
+def test_live_feature_candidates_endpoint_returns_feature_rows(tmp_path: Path):
+    settings = replace(
+        build_test_settings(tmp_path),
+        prediction_reuse_max_age_hours=0,
+    )
+
+    with TestClient(create_app(settings)) as client:
+        for address in ["100 Alpha St", "200 Beta St", "300 Gamma St"]:
+            response = client.post(
+                "/v1/predictions",
+                json={
+                    "address_line_1": address,
+                    "city": "Miami",
+                    "state": "FL",
+                    "postal_code": "33101",
+                    "country": "US",
+                },
+            )
+            assert response.status_code == 201
+
+        export_response = client.get(
+            "/v1/meta/live-feature-candidates?limit=10&offset=0&min_completeness_score=0.8"
+        )
+
+    assert export_response.status_code == 200
+    payload = export_response.json()
+    assert payload["contract_version"] == "2026-04-17"
+    assert payload["limit"] == 10
+    assert payload["offset"] == 0
+    assert payload["include_reused"] is False
+    assert payload["total"] >= 3
+    assert len(payload["items"]) >= 3
+
+    first = payload["items"][0]
+    assert first["was_reused"] is False
+    assert first["completeness_score"] >= 0.8
+    assert first["features"]["LotArea"] is not None
+    assert first["features"]["OverallQual"] is not None
+    assert first["normalized_address"]["state"] == "FL"
+
+
+def test_live_feature_candidates_include_reused_toggle(tmp_path: Path):
+    settings = build_test_settings(tmp_path)
+
+    with TestClient(create_app(settings)) as client:
+        first = client.post(
+            "/v1/predictions",
+            json={
+                "address_line_1": "77 Reuse Lane",
+                "city": "Miami",
+                "state": "FL",
+                "postal_code": "33101",
+                "country": "US",
+            },
+        )
+        second = client.post(
+            "/v1/predictions",
+            json={
+                "address_line_1": "77 Reuse Lane",
+                "city": "Miami",
+                "state": "FL",
+                "postal_code": "33101",
+                "country": "US",
+            },
+        )
+        assert first.status_code == 201
+        assert second.status_code == 201
+        assert first.json()["was_reused"] is False
+        assert second.json()["was_reused"] is True
+
+        no_reused = client.get("/v1/meta/live-feature-candidates?include_reused=false")
+        with_reused = client.get("/v1/meta/live-feature-candidates?include_reused=true")
+
+    assert no_reused.status_code == 200
+    assert with_reused.status_code == 200
+    no_reused_payload = no_reused.json()
+    with_reused_payload = with_reused.json()
+
+    assert no_reused_payload["include_reused"] is False
+    assert with_reused_payload["include_reused"] is True
+    assert all(item["was_reused"] is False for item in no_reused_payload["items"])
+    assert any(item["was_reused"] is True for item in with_reused_payload["items"])
 
 
 def test_reused_prediction_detail_surfaces_source_lineage(tmp_path: Path):
@@ -421,6 +536,66 @@ def test_reuse_can_be_disabled_with_zero_hour_freshness_window(tmp_path: Path):
 
     assert responses[0]["was_reused"] is False
     assert responses[1]["was_reused"] is False
+
+
+def test_property_enrichment_cache_is_used_when_prediction_reuse_is_disabled(tmp_path: Path):
+    settings = replace(
+        build_test_settings(tmp_path),
+        prediction_reuse_max_age_hours=0,
+        provider_response_cache_max_age_hours=24,
+    )
+
+    with TestClient(create_app(settings)) as client:
+        first = client.post(
+            "/v1/predictions",
+            json={
+                "address_line_1": "22 Sunset Blvd",
+                "city": "Miami",
+                "state": "FL",
+                "postal_code": "33101",
+                "country": "US",
+            },
+        )
+        assert first.status_code == 201
+
+        second = client.post(
+            "/v1/predictions",
+            json={
+                "address_line_1": "22 Sunset Blvd",
+                "city": "Miami",
+                "state": "FL",
+                "postal_code": "33101",
+                "country": "US",
+            },
+        )
+        assert second.status_code == 201
+
+        first_id = first.json()["prediction_id"]
+        second_id = second.json()["prediction_id"]
+
+        first_events = client.get(f"/v1/predictions/{first_id}/events?sort=asc")
+        second_events = client.get(f"/v1/predictions/{second_id}/events?sort=asc")
+        assert first_events.status_code == 200
+        assert second_events.status_code == 200
+
+        first_property_event = next(
+            event
+            for event in first_events.json()["events"]
+            if event["event_name"] == "property_enrichment_completed"
+        )
+        second_property_event = next(
+            event
+            for event in second_events.json()["events"]
+            if event["event_name"] == "property_enrichment_completed"
+        )
+
+        assert first_property_event["payload"]["provider_cache_hit"] is False
+        assert second_property_event["payload"]["provider_cache_hit"] is True
+
+        second_detail = client.get(f"/v1/predictions/{second_id}")
+        assert second_detail.status_code == 200
+        provider_names = [item["provider_name"] for item in second_detail.json()["provider_responses"]]
+        assert any(name.endswith("_cache") for name in provider_names)
 
 
 def test_reuse_does_not_cross_feature_policy_boundaries(tmp_path: Path):
@@ -1431,6 +1606,33 @@ def test_init_database_is_migration_first_by_default(tmp_path: Path):
     table_names = {row[0] for row in table_rows}
     assert "prediction_requests" not in table_names
     assert "workflow_events" not in table_names
+
+
+def test_load_dataset_supports_jsonl(tmp_path: Path):
+    dataset_path = tmp_path / "live_feature_store.jsonl"
+    dataset_path.write_text(
+        '{"LotArea": 9000, "OverallQual": 7, "SalePrice": 250000}\n'
+        '{"LotArea": 10000, "OverallQual": 8, "SalePrice": 310000}\n',
+        encoding="utf-8",
+    )
+
+    df = load_dataset(dataset_path)
+
+    assert list(df.columns) == ["LotArea", "OverallQual", "SalePrice"]
+    assert len(df) == 2
+    assert float(df.iloc[1]["SalePrice"]) == 310000.0
+
+
+def test_load_dataset_rejects_unknown_file_type(tmp_path: Path):
+    dataset_path = tmp_path / "features.unsupported"
+    dataset_path.write_text("noop", encoding="utf-8")
+
+    try:
+        _ = load_dataset(dataset_path)
+    except ValueError as exc:
+        assert "Unsupported dataset file type" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for unsupported dataset file type")
 
 
 def test_predictions_list_response_includes_pagination_metadata(tmp_path: Path):
