@@ -25,14 +25,18 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Load data
+# Load data using the trained model's data pipeline
 @st.cache_data
 def load_data():
     import os
-    # Get the directory where this script is located
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(script_dir, 'data/raw/Housing.csv')
-    df = pd.read_csv(csv_path)
+    import sys
+    from pathlib import Path
+    from src.house_price_prediction.data import load_dataset
+    from src.house_price_prediction.config import load_settings
+    
+    # Load using the same settings as training
+    settings = load_settings()
+    df = load_dataset(settings.raw_data_path)
     return df
 
 df = load_data()
@@ -61,17 +65,29 @@ def call_api(method: str, base_url: str, path: str, payload: dict | None = None,
 st.sidebar.title("🏠 Housing Dashboard")
 st.sidebar.markdown("---")
 
+# Get API URL from environment or default to localhost
+import os
+default_api_url = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+
 api_base_url = st.sidebar.text_input(
     "Live API Base URL",
-    value=st.session_state.get("api_base_url", "http://127.0.0.1:8000"),
+    value=st.session_state.get("api_base_url", default_api_url),
     help="Use the backend URL you want the UI to test against.",
 )
 st.session_state["api_base_url"] = api_base_url
 
+# Show environment info
+if "onrender.com" in api_base_url:
+    st.sidebar.success("🚀 Connected to Render deployment")
+elif "localhost" in api_base_url or "127.0.0.1" in api_base_url:
+    st.sidebar.info("🏠 Connected to local development server")
+else:
+    st.sidebar.info(f"📡 Custom API: {api_base_url}")
+
 # Page selection
 page = st.sidebar.radio(
     "Select a page:",
-    ["Overview", "Data Analysis", "Feature Exploration", "Statistics", "Live API Tester"]
+    ["Overview", "Data Analysis", "Feature Exploration", "Statistics", "Address Lookup", "Live API Tester"]
 )
 
 # ==================== PAGE: OVERVIEW ====================
@@ -365,6 +381,257 @@ elif page == "Statistics":
     
     col_info_df = pd.DataFrame(col_info)
     st.dataframe(col_info_df, use_container_width=True)
+
+# ==================== PAGE: ADDRESS LOOKUP ====================
+elif page == "Address Lookup":
+    st.title("🔍 Address Lookup & Price Prediction")
+    st.markdown(
+        "Search for a property address, view its location on the map, "
+        "and get an instant price prediction."
+    )
+    
+    st.markdown("---")
+    
+    # Initialize session state for lookup
+    if "lookup_address" not in st.session_state:
+        st.session_state["lookup_address"] = None
+    if "lookup_normalized" not in st.session_state:
+        st.session_state["lookup_normalized"] = None
+    
+    # Address input form
+    st.subheader("📍 Enter Property Address")
+    
+    with st.form("address_lookup_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            lookup_line1 = st.text_input(
+                "Address Line 1 *",
+                placeholder="123 Main Street",
+                value=st.session_state.get("lookup_line1", "")
+            )
+            lookup_city = st.text_input(
+                "City *",
+                placeholder="Miami",
+                value=st.session_state.get("lookup_city", "")
+            )
+            lookup_state = st.text_input(
+                "State *",
+                placeholder="FL",
+                value=st.session_state.get("lookup_state", "")
+            )
+        
+        with col2:
+            lookup_line2 = st.text_input(
+                "Address Line 2 (optional)",
+                placeholder="Apt 456",
+                value=st.session_state.get("lookup_line2", "")
+            )
+            lookup_postal = st.text_input(
+                "Postal Code *",
+                placeholder="33101",
+                value=st.session_state.get("lookup_postal", "")
+            )
+            lookup_country = st.text_input(
+                "Country",
+                value=st.session_state.get("lookup_country", "US")
+            )
+        
+        col_search, _spacer = st.columns([1, 3])
+        with col_search:
+            search_submitted = st.form_submit_button("🔍 Search Address", use_container_width=True)
+    
+    if search_submitted:
+        # Save form inputs to session state
+        st.session_state["lookup_line1"] = lookup_line1
+        st.session_state["lookup_city"] = lookup_city
+        st.session_state["lookup_state"] = lookup_state
+        st.session_state["lookup_line2"] = lookup_line2
+        st.session_state["lookup_postal"] = lookup_postal
+        st.session_state["lookup_country"] = lookup_country
+        
+        # Validate required fields
+        if not lookup_line1.strip() or not lookup_city.strip() or not lookup_state.strip() or not lookup_postal.strip():
+            st.error("❌ Please fill in all required fields (marked with *).")
+        else:
+            # Build payload
+            lookup_payload = {
+                "address_line_1": lookup_line1.strip(),
+                "city": lookup_city.strip(),
+                "state": lookup_state.strip(),
+                "postal_code": lookup_postal.strip(),
+                "country": lookup_country.strip(),
+            }
+            if lookup_line2.strip():
+                lookup_payload["address_line_2"] = lookup_line2.strip()
+            
+            with st.spinner("🌍 Looking up address..."):
+                sc, body, url = call_api("POST", api_base_url, "/v1/properties/normalize", payload=lookup_payload)
+            
+            if sc == 200 and isinstance(body, dict):
+                st.session_state["lookup_normalized"] = body
+                st.success("✅ Address found!")
+            else:
+                st.error(f"❌ Address lookup failed (Status {sc})")
+                st.json(body)
+    
+    st.markdown("---")
+    
+    # Display results
+    normalized = st.session_state.get("lookup_normalized")
+    
+    if normalized:
+        col_addr, col_coords = st.columns([2, 1])
+        
+        with col_addr:
+            st.subheader("📬 Normalized Address")
+            addr_display = f"{normalized.get('address_line_1', '')}"
+            if normalized.get('address_line_2'):
+                addr_display += f", {normalized.get('address_line_2')}"
+            addr_display += f"\n{normalized.get('city', '')}, {normalized.get('state', '')} {normalized.get('postal_code', '')}"
+            if normalized.get('country'):
+                addr_display += f"\n{normalized.get('country', '')}"
+            st.info(addr_display)
+            
+            if normalized.get('formatted_address'):
+                st.caption(f"**Formatted:** {normalized['formatted_address']}")
+        
+        with col_coords:
+            if normalized.get('latitude') and normalized.get('longitude'):
+                st.metric("Latitude", f"{normalized['latitude']:.4f}")
+                st.metric("Longitude", f"{normalized['longitude']:.4f}")
+                if normalized.get('geocoding_source'):
+                    st.caption(f"📡 Source: {normalized['geocoding_source']}")
+        
+        st.markdown("---")
+        
+        # Display map
+        if normalized.get('latitude') and normalized.get('longitude'):
+            st.subheader("🗺️ Location Map")
+            
+            try:
+                import folium
+                from streamlit_folium import st_folium
+                
+                lat = normalized['latitude']
+                lon = normalized['longitude']
+                
+                # Create map centered on address
+                m = folium.Map(
+                    location=[lat, lon],
+                    zoom_start=15,
+                    tiles="OpenStreetMap"
+                )
+                
+                # Add marker
+                folium.Marker(
+                    location=[lat, lon],
+                    popup=normalized.get('formatted_address', 'Unknown Address'),
+                    tooltip="Property Location",
+                    icon=folium.Icon(color="red", icon="home")
+                ).add_to(m)
+                
+                st_folium(m, width=700, height=400)
+                
+            except ImportError:
+                st.warning("⚠️ Map display requires `folium` and `streamlit-folium` packages.")
+                st.code("pip install folium streamlit-folium")
+            except Exception as e:
+                st.warning(f"⚠️ Could not display map: {str(e)}")
+        
+        st.markdown("---")
+        
+        # Price prediction section
+        st.subheader("💰 Predict Price")
+        st.write("Use this address to get an instant price prediction.")
+        
+        pred_col1, pred_col2 = st.columns(2)
+        
+        with pred_col1:
+            pred_requested_by = st.text_input(
+                "Your Email (optional)",
+                placeholder="you@example.com",
+                value=st.session_state.get("lookup_requested_by", "")
+            )
+        
+        with pred_col2:
+            st.markdown("###")  # Spacer
+            if st.button("🔮 Predict House Price", use_container_width=True, key="lookup_predict"):
+                # Save email to session
+                st.session_state["lookup_requested_by"] = pred_requested_by
+                
+                # Build prediction payload from normalized address
+                pred_payload = {
+                    "address_line_1": normalized.get('address_line_1'),
+                    "city": normalized.get('city'),
+                    "state": normalized.get('state'),
+                    "postal_code": normalized.get('postal_code'),
+                    "country": normalized.get('country'),
+                }
+                if normalized.get('address_line_2'):
+                    pred_payload["address_line_2"] = normalized.get('address_line_2')
+                if pred_requested_by.strip():
+                    pred_payload["requested_by"] = pred_requested_by.strip()
+                
+                with st.spinner("🧠 Analyzing property..."):
+                    pred_sc, pred_body, pred_url = call_api(
+                        "POST",
+                        api_base_url,
+                        "/v1/predictions",
+                        payload=pred_payload
+                    )
+                
+                if pred_sc == 201 and isinstance(pred_body, dict):
+                    st.session_state["last_prediction_id"] = str(pred_body.get('prediction_id', ''))
+                    
+                    # Display results
+                    st.markdown("###")
+                    st.success("✅ Prediction Complete!")
+                    
+                    res_col1, res_col2, res_col3 = st.columns(3)
+                    
+                    with res_col1:
+                        price = pred_body.get('predicted_price')
+                        if price:
+                            st.metric(
+                                "Predicted Price",
+                                f"${price:,.0f}",
+                                delta=None
+                            )
+                    
+                    with res_col2:
+                        completeness = pred_body.get('feature_snapshot', {}).get('completeness_score')
+                        if completeness:
+                            st.metric(
+                                "Data Completeness",
+                                f"{completeness:.1%}",
+                                delta=None
+                            )
+                    
+                    with res_col3:
+                        st.metric(
+                            "Request ID",
+                            str(pred_body.get('request_id', 'N/A'))[:8] + "...",
+                            delta=None
+                        )
+                    
+                    # Key features
+                    key_features = pred_body.get('feature_snapshot', {}).get('features', {})
+                    if key_features:
+                        st.markdown("**Key Property Features:**")
+                        feat_cols = st.columns(min(len(key_features), 4))
+                        for idx, (feat_name, feat_val) in enumerate(list(key_features.items())[:4]):
+                            with feat_cols[idx % 4]:
+                                st.metric(feat_name, feat_val)
+                    
+                else:
+                    st.error(f"❌ Prediction failed (Status {pred_sc})")
+                    if isinstance(pred_body, dict) and pred_body.get('detail'):
+                        st.error(f"Error: {pred_body['detail']}")
+                    else:
+                        st.json(pred_body)
+    else:
+        st.info("👆 Enter an address above and click **Search Address** to get started.")
 
 # ==================== PAGE: LIVE API TESTER ====================
 elif page == "Live API Tester":
