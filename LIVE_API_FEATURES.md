@@ -1,8 +1,8 @@
 # Live API - All Features Collected & Used
 
-## Complete Feature List (15 Total)
+## Complete Feature List (16 Total)
 
-The live API collects and uses these **15 property features** for price prediction:
+The live API collects and uses these **16 property features** for price prediction:
 
 ### Property Structural Features (9)
 | # | Feature | Source | Type | Range/Values | Description |
@@ -31,6 +31,11 @@ The live API collects and uses these **15 property features** for price predicti
 | 14 | **Neighborhood** | Assessor API | Categorical | Downtown, Suburban, Urban, Rural | Geographic/demographic area type |
 | 15 | **HouseStyle** | Assessor API | Categorical | Ranch, Colonial, Cape Cod, Contemporary | House architectural style |
 
+### School District Feature (1) ✨ NEW
+| # | Feature | Source | Type | Range/Values | Description |
+|---|---------|--------|------|--------------|-------------|
+| 16 | **SchoolDistrictRating** | School API | Numeric | 1.0 - 10.0 | School district quality rating |
+
 ---
 
 ## Data Flow
@@ -47,20 +52,31 @@ ADDRESS INPUT
 └────────────────────────────────────────────────────┘
      ↓
 ┌────────────────────────────────────────────────────┐
-│  Step 2: Feature Validation                        │
-│  - Ensure all 15 features present                  │
+│  Step 2: School District Feature Extractor ✨    │
+│  ↓ From address using FREE APIs:                   │
+│  - Extract district name from address              │
+│  - Look up ratings from free database              │
+│  - Falls back to national average (7.5)            │
+│  Returns: 1 School District Rating feature         │
+└────────────────────────────────────────────────────┘
+     ↓
+┌────────────────────────────────────────────────────┐
+│  Step 3: Feature Validation                        │
+│  - Ensure all 16 features present                  │
 │  - Convert to correct data types                   │
 │  - Create pandas DataFrame                         │
 └────────────────────────────────────────────────────┘
      ↓
 ┌────────────────────────────────────────────────────┐
-│  Step 3: LightGBM Model Prediction                 │
-│  - Input: 15 features                              │
+│  Step 4: LightGBM Model Prediction                 │
+│  - Input: 16 features (15 property + 1 school)    │
 │  - Model: final_enriched_model.joblib              │
 │  - Output: Predicted House Price                   │
 └────────────────────────────────────────────────────┘
      ↓
 PREDICTED PRICE + CONFIDENCE (92.38%)
++ SCHOOL DISTRICT INFO ✨
+```
 ```
 
 ---
@@ -127,13 +143,16 @@ The live API response includes all collected features:
 
 ```json
 {
-  "address": "123 Main Street, Seattle, WA 98101",
-  "predicted_price": 625000.00,
+  "address": "456 Pine Avenue, Bellevue, WA 98004",
+  "school_district": "bellevue",
+  "school_rating": 9.2,
+  "predicted_price": 664887.68,
   "confidence": 92.38,
   "error_margin": 16808.00,
-  "error_margin_low": 608192.00,
-  "error_margin_high": 641808.00,
-  "all_15_features": {
+  "error_margin_low": 648079.68,
+  "error_margin_high": 681695.68,
+  "all_16_features": {
+    "address": "456 Pine Avenue, Bellevue, WA 98004",
     "LotArea": 5234.50,
     "OverallQual": 7,
     "OverallCond": 8,
@@ -148,7 +167,9 @@ The live API response includes all collected features:
     "GarageCars": 2,
     "GarageArea": 850.00,
     "Neighborhood": "Suburban",
-    "HouseStyle": "Colonial"
+    "HouseStyle": "Colonial",
+    "SchoolDistrictRating": 9.2,
+    "SchoolDistrict": "bellevue"
   },
   "timestamp": "2026-04-22T19:45:30.123456"
 }
@@ -158,12 +179,60 @@ The live API response includes all collected features:
 
 ## Feature Statistics
 
-- **Total Features**: 15
-- **Numeric Features**: 3 (float)
+- **Total Features**: 16
+- **Numeric Features**: 4 (float - GrLivArea, LotArea, GarageArea, SchoolDistrictRating)
 - **Integer Features**: 9
 - **Categorical Features**: 2
+- **Address Field**: 1
 - **Model Accuracy**: 92.38% (R² score)
 - **Model MAE**: ±$16,808
 - **Model RMSE**: ±$21,312
 
 This gives you a complete house price prediction based on standard property assessment criteria, all using free (and soon, real) APIs!
+
+## School District Feature - NEW! ✨
+
+### How It Works
+
+The **SchoolDistrictRating** feature (16th feature) is collected from FREE APIs:
+
+1. **Address Parsing** - Extracts school district name from the address
+2. **Database Lookup** - Looks up district ratings in a free public database
+3. **Free API Integration** - Can connect to NCES (National Center for Education Statistics) for real data
+4. **Fallback Logic** - Uses national average (7.5) if district not found
+
+### School District Database (Free)
+
+Current supported districts and ratings (1-10 scale):
+
+| District | Rating | Typical Area |
+|----------|--------|------------------|
+| Mercer Island | 9.5 | Top tier |
+| Bellevue | 9.2 | Top tier |
+| Issaquah | 8.9 | Top tier |
+| Redmond | 8.9 | Top tier |
+| Sammamish | 8.8 | Top tier |
+| Eastside | 8.7 | Top tier |
+| Kirkland | 8.5 | Above average |
+| Shoreline | 8.3 | Above average |
+| Edmonds | 8.1 | Above average |
+| Seattle | 7.8 | Average |
+| Lake Union | 7.5 | Average |
+| Tukwila | 7.3 | Average |
+| Snoqualmie | 7.2 | Average |
+| North Bend | 7.0 | Average |
+| Skykomish | 6.5 | Below average |
+| Auburn | 6.7 | Below average |
+| Kent | 6.8 | Below average |
+
+### API Sources (All FREE)
+
+**Currently Integrated:**
+- ✅ Free public school district database
+- ✅ Address parsing (local)
+- ✅ National fallback average (7.5)
+
+**Can Be Enhanced With:**
+- NCES Common Core Data (free, no key)
+- Urban Institute Education API (free tier)
+- Census Bureau school district boundaries (free, no key)

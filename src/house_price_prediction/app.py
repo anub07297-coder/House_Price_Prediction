@@ -50,7 +50,9 @@ class PriceResponse(BaseModel):
     error_margin: float
     error_margin_low: float
     error_margin_high: float
-    all_15_features: dict
+    all_16_features: dict
+    school_district: str
+    school_rating: float
     timestamp: str
 
 
@@ -103,7 +105,9 @@ async def predict_price(request: AddressRequest):
             error_margin=result['error_margin'],
             error_margin_low=result['error_margin_low'],
             error_margin_high=result['error_margin_high'],
-            all_15_features=result['all_15_features'],
+            all_16_features=result['all_16_features'],
+            school_district=result['school_district'],
+            school_rating=result['school_rating'],
             timestamp=result['timestamp']
         )
 
