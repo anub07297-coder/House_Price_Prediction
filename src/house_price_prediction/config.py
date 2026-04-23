@@ -30,7 +30,8 @@ class Settings:
     provider_max_retries: int
     feature_policy_name: str = "balanced-v1"
     feature_policy_version: str = "v1"
-    feature_policy_state_overrides: dict[str, str] = field(default_factory=dict)
+    feature_policy_state_overrides: dict[str, str] = field(
+        default_factory=dict)
 
 
 def _get_bool_env(name: str, default: bool) -> bool:
@@ -64,8 +65,10 @@ def load_settings() -> Settings:
 
     return Settings(
         raw_data_path=Path(os.getenv("RAW_DATA_PATH", "data/raw/Housing.csv")),
-        target_column=os.getenv("TARGET_COLUMN", "SalePrice"),
-        model_path=Path(os.getenv("MODEL_PATH", "models/house_price_model.joblib")),
+        # Census API uses "price"
+        target_column=os.getenv("TARGET_COLUMN", "price"),
+        model_path=Path(
+            os.getenv("MODEL_PATH", "models/house_price_model.joblib")),
         test_size=float(os.getenv("TEST_SIZE", "0.2")),
         random_state=int(os.getenv("RANDOM_STATE", "42")),
         app_name=os.getenv("APP_NAME", "House Price Prediction API"),
@@ -80,8 +83,10 @@ def load_settings() -> Settings:
         enable_mock_predictor=_get_bool_env("ENABLE_MOCK_PREDICTOR", True),
         property_data_provider=os.getenv("PROPERTY_DATA_PROVIDER", "fake"),
         geocoding_provider=os.getenv("GEOCODING_PROVIDER", "fake"),
-        prediction_reuse_max_age_hours=int(os.getenv("PREDICTION_REUSE_MAX_AGE_HOURS", "24")),
-        provider_timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "3.0")),
+        prediction_reuse_max_age_hours=int(
+            os.getenv("PREDICTION_REUSE_MAX_AGE_HOURS", "24")),
+        provider_timeout_seconds=float(
+            os.getenv("PROVIDER_TIMEOUT_SECONDS", "3.0")),
         provider_max_retries=int(os.getenv("PROVIDER_MAX_RETRIES", "2")),
         feature_policy_name=os.getenv("FEATURE_POLICY_NAME", "balanced-v1"),
         feature_policy_version=os.getenv("FEATURE_POLICY_VERSION", "v1"),
