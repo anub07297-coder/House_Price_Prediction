@@ -5,36 +5,40 @@
 The live API collects and uses these **16 property features** for price prediction:
 
 ### Property Structural Features (9)
-| # | Feature | Source | Type | Range/Values | Description |
-|---|---------|--------|------|--------------|-------------|
-| 1 | **GrLivArea** | Assessor API | Numeric | 1,200 - 4,500 sq ft | Ground living area (main living space) |
-| 2 | **LotArea** | Assessor API | Numeric | 4,000 - 15,000 sq ft | Total lot/land area size |
-| 3 | **GarageArea** | Assessor API | Numeric | 400 - 1,200 sq ft | Garage/carport area |
-| 4 | **BedroomAbvGr** | Assessor API | Integer | 2 - 6 | Number of bedrooms above ground |
-| 5 | **FullBath** | Assessor API | Integer | 1 - 4 | Number of full bathrooms |
-| 6 | **HalfBath** | Assessor API | Integer | 0 - 2 | Number of half bathrooms |
-| 7 | **TotRmsAbvGrd** | Assessor API | Integer | 5 - 14 | Total rooms above ground |
-| 8 | **Fireplaces** | Assessor API | Integer | 0 - 3 | Number of fireplaces |
-| 9 | **GarageCars** | Assessor API | Integer | 1 - 4 | Garage capacity (number of cars) |
+
+| #   | Feature          | Source       | Type    | Range/Values         | Description                            |
+| --- | ---------------- | ------------ | ------- | -------------------- | -------------------------------------- |
+| 1   | **GrLivArea**    | Assessor API | Numeric | 1,200 - 4,500 sq ft  | Ground living area (main living space) |
+| 2   | **LotArea**      | Assessor API | Numeric | 4,000 - 15,000 sq ft | Total lot/land area size               |
+| 3   | **GarageArea**   | Assessor API | Numeric | 400 - 1,200 sq ft    | Garage/carport area                    |
+| 4   | **BedroomAbvGr** | Assessor API | Integer | 2 - 6                | Number of bedrooms above ground        |
+| 5   | **FullBath**     | Assessor API | Integer | 1 - 4                | Number of full bathrooms               |
+| 6   | **HalfBath**     | Assessor API | Integer | 0 - 2                | Number of half bathrooms               |
+| 7   | **TotRmsAbvGrd** | Assessor API | Integer | 5 - 14               | Total rooms above ground               |
+| 8   | **Fireplaces**   | Assessor API | Integer | 0 - 3                | Number of fireplaces                   |
+| 9   | **GarageCars**   | Assessor API | Integer | 1 - 4                | Garage capacity (number of cars)       |
 
 ### Property Age & Condition Features (4)
-| # | Feature | Source | Type | Range/Values | Description |
-|---|---------|--------|------|--------------|-------------|
-| 10 | **YearBuilt** | Assessor API | Integer | 1950 - 2015 | Original construction year |
-| 11 | **YearRemodAdd** | Assessor API | Integer | 1980 - 2020 | Year of last renovation/remodel |
-| 12 | **OverallQual** | Assessor API | Integer | 5 - 10 (1-10 scale) | Overall material & finish quality rating |
-| 13 | **OverallCond** | Assessor API | Integer | 5 - 9 (1-10 scale) | Overall condition rating |
+
+| #   | Feature          | Source       | Type    | Range/Values        | Description                              |
+| --- | ---------------- | ------------ | ------- | ------------------- | ---------------------------------------- |
+| 10  | **YearBuilt**    | Assessor API | Integer | 1950 - 2015         | Original construction year               |
+| 11  | **YearRemodAdd** | Assessor API | Integer | 1980 - 2020         | Year of last renovation/remodel          |
+| 12  | **OverallQual**  | Assessor API | Integer | 5 - 10 (1-10 scale) | Overall material & finish quality rating |
+| 13  | **OverallCond**  | Assessor API | Integer | 5 - 9 (1-10 scale)  | Overall condition rating                 |
 
 ### Property Classification Features (2)
-| # | Feature | Source | Type | Values | Description |
-|---|---------|--------|------|--------|-------------|
-| 14 | **Neighborhood** | Assessor API | Categorical | Downtown, Suburban, Urban, Rural | Geographic/demographic area type |
-| 15 | **HouseStyle** | Assessor API | Categorical | Ranch, Colonial, Cape Cod, Contemporary | House architectural style |
+
+| #   | Feature          | Source       | Type        | Values                                  | Description                      |
+| --- | ---------------- | ------------ | ----------- | --------------------------------------- | -------------------------------- |
+| 14  | **Neighborhood** | Assessor API | Categorical | Downtown, Suburban, Urban, Rural        | Geographic/demographic area type |
+| 15  | **HouseStyle**   | Assessor API | Categorical | Ranch, Colonial, Cape Cod, Contemporary | House architectural style        |
 
 ### School District Feature (1) ✨ NEW
-| # | Feature | Source | Type | Range/Values | Description |
-|---|---------|--------|------|--------------|-------------|
-| 16 | **SchoolDistrictRating** | School API | Numeric | 1.0 - 10.0 | School district quality rating |
+
+| #   | Feature                  | Source     | Type    | Range/Values | Description                    |
+| --- | ------------------------ | ---------- | ------- | ------------ | ------------------------------ |
+| 16  | **SchoolDistrictRating** | School API | Numeric | 1.0 - 10.0   | School district quality rating |
 
 ---
 
@@ -77,7 +81,8 @@ ADDRESS INPUT
 PREDICTED PRICE + CONFIDENCE (92.38%)
 + SCHOOL DISTRICT INFO ✨
 ```
-```
+
+````
 
 ---
 
@@ -126,9 +131,10 @@ PREDICTED PRICE + CONFIDENCE (92.38%)
 'GarageArea': np.random.uniform(400, 1200)         # Random sq ft
 'Neighborhood': Random choice                       # Random categorical
 'HouseStyle': Random choice                         # Random categorical
-```
+````
 
 ### Can Be Connected to Real APIs
+
 1. **King County Assessor API** - For actual property records
 2. **Open Street Map / Nominatim** - For real geocoding
 3. **FCC Census API** - For real Census tract data (free, no key needed)
@@ -148,24 +154,24 @@ The live API response includes all collected features:
   "school_rating": 9.2,
   "predicted_price": 664887.68,
   "confidence": 92.38,
-  "error_margin": 16808.00,
+  "error_margin": 16808.0,
   "error_margin_low": 648079.68,
   "error_margin_high": 681695.68,
   "all_16_features": {
     "address": "456 Pine Avenue, Bellevue, WA 98004",
-    "LotArea": 5234.50,
+    "LotArea": 5234.5,
     "OverallQual": 7,
     "OverallCond": 8,
     "YearBuilt": 2000,
     "YearRemodAdd": 2018,
-    "GrLivArea": 2450.00,
+    "GrLivArea": 2450.0,
     "FullBath": 2,
     "HalfBath": 1,
     "BedroomAbvGr": 4,
     "TotRmsAbvGrd": 9,
     "Fireplaces": 1,
     "GarageCars": 2,
-    "GarageArea": 850.00,
+    "GarageArea": 850.0,
     "Neighborhood": "Suburban",
     "HouseStyle": "Colonial",
     "SchoolDistrictRating": 9.2,
@@ -205,34 +211,36 @@ The **SchoolDistrictRating** feature (16th feature) is collected from FREE APIs:
 
 Current supported districts and ratings (1-10 scale):
 
-| District | Rating | Typical Area |
-|----------|--------|------------------|
-| Mercer Island | 9.5 | Top tier |
-| Bellevue | 9.2 | Top tier |
-| Issaquah | 8.9 | Top tier |
-| Redmond | 8.9 | Top tier |
-| Sammamish | 8.8 | Top tier |
-| Eastside | 8.7 | Top tier |
-| Kirkland | 8.5 | Above average |
-| Shoreline | 8.3 | Above average |
-| Edmonds | 8.1 | Above average |
-| Seattle | 7.8 | Average |
-| Lake Union | 7.5 | Average |
-| Tukwila | 7.3 | Average |
-| Snoqualmie | 7.2 | Average |
-| North Bend | 7.0 | Average |
-| Skykomish | 6.5 | Below average |
-| Auburn | 6.7 | Below average |
-| Kent | 6.8 | Below average |
+| District      | Rating | Typical Area  |
+| ------------- | ------ | ------------- |
+| Mercer Island | 9.5    | Top tier      |
+| Bellevue      | 9.2    | Top tier      |
+| Issaquah      | 8.9    | Top tier      |
+| Redmond       | 8.9    | Top tier      |
+| Sammamish     | 8.8    | Top tier      |
+| Eastside      | 8.7    | Top tier      |
+| Kirkland      | 8.5    | Above average |
+| Shoreline     | 8.3    | Above average |
+| Edmonds       | 8.1    | Above average |
+| Seattle       | 7.8    | Average       |
+| Lake Union    | 7.5    | Average       |
+| Tukwila       | 7.3    | Average       |
+| Snoqualmie    | 7.2    | Average       |
+| North Bend    | 7.0    | Average       |
+| Skykomish     | 6.5    | Below average |
+| Auburn        | 6.7    | Below average |
+| Kent          | 6.8    | Below average |
 
 ### API Sources (All FREE)
 
 **Currently Integrated:**
+
 - ✅ Free public school district database
 - ✅ Address parsing (local)
 - ✅ National fallback average (7.5)
 
 **Can Be Enhanced With:**
+
 - NCES Common Core Data (free, no key)
 - Urban Institute Education API (free tier)
 - Census Bureau school district boundaries (free, no key)

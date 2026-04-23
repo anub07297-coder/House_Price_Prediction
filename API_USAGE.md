@@ -21,12 +21,15 @@ The API will be available at: `http://localhost:8000`
 ## API Endpoints
 
 ### 1. Health Check
+
 ```bash
 GET http://localhost:8000/
 ```
+
 Returns API status and available endpoints.
 
 ### 2. Predict Single Address
+
 ```bash
 POST http://localhost:8000/predict
 Content-Type: application/json
@@ -37,6 +40,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "address": "123 Main Street, Seattle, WA 98101",
@@ -56,6 +60,7 @@ Content-Type: application/json
 ```
 
 ### 3. Predict Batch (Multiple Addresses)
+
 ```bash
 POST http://localhost:8000/batch-predict
 Content-Type: application/json
@@ -70,6 +75,7 @@ Content-Type: application/json
 ## Examples
 
 ### Python
+
 ```python
 import requests
 
@@ -82,6 +88,7 @@ print(f"Confidence: {data['confidence']:.1f}%")
 ```
 
 ### cURL
+
 ```bash
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
@@ -89,11 +96,12 @@ curl -X POST http://localhost:8000/predict \
 ```
 
 ### JavaScript/Fetch
+
 ```javascript
-const response = await fetch('http://localhost:8000/predict', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ address: '123 Main Street, Seattle, WA 98101' })
+const response = await fetch("http://localhost:8000/predict", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ address: "123 Main Street, Seattle, WA 98101" }),
 });
 
 const data = await response.json();
@@ -124,6 +132,7 @@ console.log(`Predicted: $${data.predicted_price.toLocaleString()}`);
 ## Features
 
 By default, the API is set to use:
+
 - **Fake assessor data** (can be replaced with real County Assessor API)
 - **Free Nominatim geocoding** (OpenStreetMap)
 - **Free FCC Census API** (for Census tract data)
@@ -140,6 +149,7 @@ Both provide interactive testing and schema documentation.
 The API is CORS-enabled for frontend access from any origin.
 
 For production, consider:
+
 1. Adding actual County Assessor API integration
 2. Caching predictions for repeated addresses
 3. Rate limiting on /predict endpoint

@@ -392,12 +392,13 @@ class PricePredictionPipeline:
             print("[INFO] Using baseline demo model")
             self.model = None
 
-    def predict_price(self, address: str) -> Dict:
+    def predict_price(self, address: str, real_features: Dict = None) -> Dict:
         """
         Predict house price from address.
 
         Args:
             address: Full address (e.g., "123 Oak St, Seattle, WA 98101")
+            real_features: Optional dict with real property data to use instead of simulated
 
         Returns:
             Dict with:
@@ -410,11 +411,15 @@ class PricePredictionPipeline:
         print(f"PRICE PREDICTION FOR: {address}")
         print("=" * 80)
 
-        # Step 1: Get property features from Assessor API
-        print("\n[STEP 1/4] Fetching property data from County Assessor...")
-        assessor_data = AssessorAPIConnector.search_property_by_address(
-            address)
-        price_target = assessor_data.pop('price')  # Extract target
+        # Step 1: Get property features from Assessor API (or use provided real features)
+        if real_features:
+            print("\n[STEP 1/4] Using PROVIDED real property data...")
+            assessor_data = real_features.copy()
+            price_target = assessor_data.pop('price', None)
+        else:
+            print("\n[STEP 1/4] Fetching property data from County Assessor...")
+            assessor_data = AssessorAPIConnector.search_property_by_address(address)
+            price_target = assessor_data.pop('price')  # Extract target
 
         # Step 2: Get school district rating
         print("\n[STEP 2/4] Fetching school district rating...")

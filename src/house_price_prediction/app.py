@@ -93,7 +93,8 @@ async def predict_price(request: AddressRequest):
             pipeline = PricePredictionPipeline()
 
         if not request.address or len(request.address.strip()) < 5:
-            raise HTTPException(status_code=400, detail="Address must be at least 5 characters")
+            raise HTTPException(
+                status_code=400, detail="Address must be at least 5 characters")
 
         logger.info(f"Processing prediction for: {request.address}")
         result = pipeline.predict_price(request.address)
@@ -116,7 +117,8 @@ async def predict_price(request: AddressRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Prediction error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Prediction failed: {str(e)}")
 
 
 @app.post("/batch-predict")
