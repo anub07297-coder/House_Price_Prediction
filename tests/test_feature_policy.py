@@ -5,6 +5,7 @@ from uuid import uuid4
 from house_price_prediction.application.services.feature_assembly_service import (
     FeatureAssemblyService,
 )
+from house_price_prediction.infrastructure.model_runtime.predictor import PredictionRuntime
 
 
 def test_quality_first_policy_biases_completeness_toward_key_features():
@@ -83,3 +84,39 @@ def test_state_override_selects_policy_for_context():
 
     assert vector.feature_policy_name == "quality-first-v1"
     assert vector.completeness_score > 0.5
+
+
+def test_mock_predictor_uses_all_major_features():
+    base_features = {
+        "LotArea": 8500,
+        "OverallQual": 6,
+        "OverallCond": 5,
+        "YearBuilt": 1990,
+        "YearRemodAdd": 1995,
+        "GrLivArea": 1500,
+        "FullBath": 2,
+        "HalfBath": 0,
+        "BedroomAbvGr": 3,
+        "TotRmsAbvGrd": 6,
+        "Fireplaces": 0,
+        "GarageCars": 2,
+        "GarageArea": 480,
+        "Neighborhood": "NAmes",
+        "HouseStyle": "1Story",
+    }
+    base_price = PredictionRuntime._mock_predict(base_features)
+
+    feature_variants = {
+        "OverallCond": 9,
+        "YearRemodAdd": 2022,
+        "HalfBath": 1,
+        "TotRmsAbvGrd": 10,
+        "GarageArea": 900,
+        "Neighborhood": "NoRidge",
+        "HouseStyle": "2Story",
+    }
+
+    for feature_name, changed_value in feature_variants.items():
+        variant = dict(base_features)
+        variant[feature_name] = changed_value
+        assert PredictionRuntime._mock_predict(variant) != base_price
