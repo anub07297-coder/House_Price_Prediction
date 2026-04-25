@@ -25,14 +25,18 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Load data
+# Load data using the trained model's data pipeline
 @st.cache_data
 def load_data():
     import os
-    # Get the directory where this script is located
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(script_dir, 'data/raw/Housing.csv')
-    df = pd.read_csv(csv_path)
+    import sys
+    from pathlib import Path
+    from src.house_price_prediction.data import load_dataset
+    from src.house_price_prediction.config import load_settings
+    
+    # Load using the same settings as training
+    settings = load_settings()
+    df = load_dataset(settings.raw_data_path)
     return df
 
 df = load_data()
@@ -61,12 +65,24 @@ def call_api(method: str, base_url: str, path: str, payload: dict | None = None,
 st.sidebar.title("🏠 Housing Dashboard")
 st.sidebar.markdown("---")
 
+# Get API URL from environment or default to localhost
+import os
+default_api_url = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+
 api_base_url = st.sidebar.text_input(
     "Live API Base URL",
-    value=st.session_state.get("api_base_url", "http://127.0.0.1:8000"),
+    value=st.session_state.get("api_base_url", default_api_url),
     help="Use the backend URL you want the UI to test against.",
 )
 st.session_state["api_base_url"] = api_base_url
+
+# Show environment info
+if "onrender.com" in api_base_url:
+    st.sidebar.success("🚀 Connected to Render deployment")
+elif "localhost" in api_base_url or "127.0.0.1" in api_base_url:
+    st.sidebar.info("🏠 Connected to local development server")
+else:
+    st.sidebar.info(f"📡 Custom API: {api_base_url}")
 
 if st.sidebar.button("Check API Runtime", use_container_width=True):
     sc, body, url = call_api("GET", api_base_url, "/v1/health")
@@ -108,7 +124,7 @@ if runtime_health is not None:
 # Page selection
 page = st.sidebar.radio(
     "Select a page:",
-    ["Overview", "Data Analysis", "Feature Exploration", "Statistics", "Live API Tester"]
+    ["Overview", "Data Analysis", "Feature Exploration", "Statistics", "Address Lookup", "Live API Tester"]
 )
 
 # ==================== PAGE: OVERVIEW ====================
@@ -403,7 +419,272 @@ elif page == "Statistics":
     col_info_df = pd.DataFrame(col_info)
     st.dataframe(col_info_df, use_container_width=True)
 
-# ==================== PAGE: LIVE API TESTER ====================
+# ==================== PAGE: ADDRESS LOOKUP ====================
+elif page == "Address Lookup":
+    st.title("🔍 Address Lookup & Price Comparison")
+    st.markdown(
+        "Search for multiple property addresses, view their locations on the map, "
+        "and compare price predictions side by side."
+    )
+    
+    st.markdown("---")
+    
+    # Initialize session state for lookup
+    if "lookup_predictions" not in st.session_state:
+        st.session_state["lookup_predictions"] = []
+    if "lookup_normalized" not in st.session_state:
+        st.session_state["lookup_normalized"] = None
+    
+    # Initialize address slots (up to 3 side-by-side)
+    num_slots = 3
+    
+    st.subheader("📍 Enter Property Addresses (Side-by-Side)")
+    st.write("Fill in one or more addresses and search them individually")
+    
+    # Create columns for address forms
+    form_cols = st.columns(num_slots)
+    
+    # Process each address slot
+    for slot_idx in range(num_slots):
+        with form_cols[slot_idx]:
+            st.markdown(f"### Property {slot_idx + 1}")
+            
+            # Use unique keys for each form
+            line1_key = f"lookup_line1_{slot_idx}"
+            city_key = f"lookup_city_{slot_idx}"
+            state_key = f"lookup_state_{slot_idx}"
+            line2_key = f"lookup_line2_{slot_idx}"
+            postal_key = f"lookup_postal_{slot_idx}"
+            country_key = f"lookup_country_{slot_idx}"
+            
+            # Input fields
+            line1 = st.text_input(
+                f"Address Line 1 *",
+                placeholder="123 Main Street",
+                value=st.session_state.get(line1_key, ""),
+                key=f"input_{line1_key}"
+            )
+            
+            city = st.text_input(
+                f"City *",
+                placeholder="Miami",
+                value=st.session_state.get(city_key, ""),
+                key=f"input_{city_key}"
+            )
+            
+            state = st.text_input(
+                f"State *",
+                placeholder="FL",
+                value=st.session_state.get(state_key, ""),
+                key=f"input_{state_key}"
+            )
+            
+            line2 = st.text_input(
+                f"Address Line 2",
+                placeholder="Apt 456",
+                value=st.session_state.get(line2_key, ""),
+                key=f"input_{line2_key}"
+            )
+            
+            postal = st.text_input(
+                f"Postal Code *",
+                placeholder="33101",
+                value=st.session_state.get(postal_key, ""),
+                key=f"input_{postal_key}"
+            )
+            
+            country = st.text_input(
+                f"Country",
+                value=st.session_state.get(country_key, "US"),
+                key=f"input_{country_key}"
+            )
+            
+            # Search button for this slot
+            if st.button(f"🔍 Search Property {slot_idx + 1}", use_container_width=True, key=f"search_btn_{slot_idx}"):
+                # Save inputs
+                st.session_state[line1_key] = line1
+                st.session_state[city_key] = city
+                st.session_state[state_key] = state
+                st.session_state[line2_key] = line2
+                st.session_state[postal_key] = postal
+                st.session_state[country_key] = country
+                
+                # Validate
+                if not line1.strip() or not city.strip() or not state.strip() or not postal.strip():
+                    st.error("❌ Fill all required fields (*)")
+                else:
+                    # Build payload
+                    lookup_payload = {
+                        "address_line_1": line1.strip(),
+                        "city": city.strip(),
+                        "state": state.strip(),
+                        "postal_code": postal.strip(),
+                        "country": country.strip(),
+                    }
+                    if line2.strip():
+                        lookup_payload["address_line_2"] = line2.strip()
+                    
+                    with st.spinner("🌍 Looking up address..."):
+                        sc, body, url = call_api("POST", api_base_url, "/v1/properties/normalize", payload=lookup_payload)
+                    
+                    if sc == 200 and isinstance(body, dict):
+                        # Store in predictions with auto-prediction
+                        pred_payload = dict(lookup_payload)
+                        with st.spinner("🧠 Predicting price..."):
+                            pred_sc, pred_body, _ = call_api("POST", api_base_url, "/v1/predictions", payload=pred_payload)
+                        
+                        if pred_sc == 201 and isinstance(pred_body, dict):
+                            prediction_entry = {
+                                "address": f"{line1}, {city}, {state}",
+                                "formatted_address": body.get('formatted_address', ''),
+                                "latitude": body.get('latitude'),
+                                "longitude": body.get('longitude'),
+                                "predicted_price": pred_body.get('predicted_price'),
+                                "completeness_score": pred_body.get('completeness_score'),
+                                "features": pred_body.get('feature_snapshot', {}).get('features', {}),
+                                "prediction_id": pred_body.get('prediction_id'),
+                            }
+                            st.session_state["lookup_predictions"].append(prediction_entry)
+                            st.success(f"✅ Property {slot_idx + 1} added!")
+                            st.balloons()
+                        else:
+                            st.error(f"❌ Prediction failed")
+                    else:
+                        st.error(f"❌ Address lookup failed")
+    
+    st.markdown("---")
+    
+    # Display results
+    normalized = st.session_state.get("lookup_normalized")
+    
+    st.markdown("---")
+    
+    # ========== COMPARISON SECTION ==========
+    predictions = st.session_state.get("lookup_predictions", [])
+    
+    if predictions:
+        st.subheader(f"📊 Comparison ({len(predictions)} properties)")
+        
+        # Comparison table
+        comparison_data = []
+        for idx, pred in enumerate(predictions):
+            comparison_data.append({
+                "Property": pred.get("address", "Unknown"),
+                "Predicted Price": f"${pred.get('predicted_price', 0):,.0f}",
+                "Completeness": f"{pred.get('completeness_score', 0):.1%}",
+            })
+        
+        comparison_df = pd.DataFrame(comparison_data)
+        st.dataframe(comparison_df, use_container_width=True)
+        
+        # Price comparison chart
+        if len(predictions) > 1:
+            st.markdown("###")
+            st.subheader("💵 Price Comparison Chart")
+            
+            chart_data = pd.DataFrame([
+                {
+                    "Address": p.get("address", "Unknown").split(",")[0],  # Just street
+                    "Price": p.get("predicted_price", 0)
+                }
+                for p in predictions
+            ])
+            
+            fig = px.batestsr(
+                chart_data,
+                x="Address",
+                y="Price",
+                title="Predicted Prices Comparison",
+                labels={"Price": "Price ($)", "Address": "Property"},
+                color="Price",
+                color_continuous_scale="Viridis"
+            )
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Statistics
+            col1, col2, col3, col4 = st.columns(4)
+            prices = [p.get("predicted_price", 0) for p in predictions]
+            
+            with col1:
+                st.metric("Highest Price", f"${max(prices):,.0f}")
+            with col2:
+                st.metric("Lowest Price", f"${min(prices):,.0f}")
+            with col3:
+                st.metric("Average Price", f"${sum(prices)/len(prices):,.0f}")
+            with col4:
+                st.metric("Price Range", f"${max(prices) - min(prices):,.0f}")
+        
+        # Map with all properties
+        if any(p.get('latitude') and p.get('longitude') for p in predictions):
+            st.markdown("###")
+            st.subheader("🗺️ All Properties Map")
+            
+            try:
+                import folium
+                from streamlit_folium import st_folium
+                
+                # Calculate center of all properties
+                lats = [p['latitude'] for p in predictions if p.get('latitude')]
+                lons = [p['longitude'] for p in predictions if p.get('longitude')]
+                
+                if lats and lons:
+                    center_lat = sum(lats) / len(lats)
+                    center_lon = sum(lons) / len(lons)
+                    
+                    m = folium.Map(
+                        location=[center_lat, center_lon],
+                        zoom_start=12,
+                        tiles="OpenStreetMap"
+                    )
+                    
+                    # Color map for markers
+                    colors = ["red", "blue", "green", "purple", "orange", "darkred", "darkblue", "darkgreen"]
+                    
+                    # Add markers for each property
+                    for idx, pred in enumerate(predictions):
+                        if pred.get('latitude') and pred.get('longitude'):
+                            color = colors[idx % len(colors)]
+                            price = pred.get('predicted_price', 0)
+                            
+                            folium.Marker(
+                                location=[pred['latitude'], pred['longitude']],
+                                popup=f"{pred.get('address', 'Unknown')}<br>${price:,.0f}",
+                                tooltip=f"${price:,.0f}",
+                                icon=folium.Icon(color=color, icon="home", prefix="fa")
+                            ).add_to(m)
+                    
+                    st_folium(m, width=700, height=500)
+            except Exception as e:
+                st.warning(f"⚠️ Could not display map: {str(e)}")
+        
+        # Remove individual predictions
+        st.markdown("###")
+        st.subheader("🗑️ Manage Comparison")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Clear All", use_container_width=True):
+                st.session_state["lookup_predictions"] = []
+                st.rerun()
+        
+        with col2:
+            selected_to_remove = st.selectbox(
+                "Remove a property:",
+                options=[f"{i+1}. {p['address'].split(',')[0]}" for i, p in enumerate(predictions)],
+                key="remove_select"
+            )
+            if st.button("❌ Remove Selected", use_container_width=True):
+                remove_idx = int(selected_to_remove.split(".")[0]) - 1
+                predictions.pop(remove_idx)
+                st.session_state["lookup_predictions"] = predictions
+                st.rerun()
+    else:
+        if st.session_state.get("lookup_normalized"):
+            st.info("💡 Predict an address price using the button above to start comparing properties!")
+
+
 elif page == "Live API Tester":
     st.title("🧪 Live API Tester")
     st.markdown(
