@@ -23,6 +23,7 @@ from typing import Dict, Tuple
 # ============================================================================
 # Real comps from high-end markets: Aspen, Malibu, Hamptons, Atlanta luxury, etc.
 
+
 def create_luxury_estate_dataset() -> pd.DataFrame:
     """
     Create realistic luxury estate training data based on actual market comps
@@ -50,7 +51,8 @@ def create_luxury_estate_dataset() -> pd.DataFrame:
             'OverallCond': np.random.randint(8, 10),
             'Acreage': np.random.uniform(50, 500),  # NEW: acres
             'LuxuryTier': 'High',  # NEW: luxury classification
-            'HasPool': np.random.choice([0, 1], p=[0.3, 0.7]),  # NEW: amenities
+            # NEW: amenities
+            'HasPool': np.random.choice([0, 1], p=[0.3, 0.7]),
             'HasTennisCore': np.random.choice([0, 1], p=[0.7, 0.3]),
             'HasGuestHouse': np.random.choice([0, 1], p=[0.6, 0.4]),
             'LandToBuilding': np.random.uniform(100, 1000),  # NEW: ratio
@@ -183,11 +185,13 @@ class LuxuryEstateModel:
         print("="*80)
 
         print(f"\nDataset: {len(df)} luxury estate properties")
-        print(f"Price range: ${df['price'].min():,.0f} - ${df['price'].max():,.0f}")
+        print(
+            f"Price range: ${df['price'].min():,.0f} - ${df['price'].max():,.0f}")
         print(f"Average price: ${df['price'].mean():,.0f}")
 
         # Encode luxury tier
-        df['LuxuryTier'] = self.luxury_tier_encoder.fit_transform(df['LuxuryTier'])
+        df['LuxuryTier'] = self.luxury_tier_encoder.fit_transform(
+            df['LuxuryTier'])
 
         # Prepare features
         feature_cols = [

@@ -1,94 +1,179 @@
 """
-Address to Price Predictor - Complete Pipeline
+House Price Predictor - CSV-Based Pipeline
 
 Takes a single address as input and returns:
-1. All 16 model features
-2. Price prediction
+1. All 16 model features (from state CSV data)
+2. Price prediction from trained ML model
 3. Confidence metrics
 
 Data flow:
-  Address → County Assessor API → Property Features (13)
-         → Census/ArcGIS API → Economic Features (2)
-         → Derived Features → School Rating (1)
-         → Model.predict() → Price + Confidence
+  Address → Extract State → Load State CSV Files → Get Median Features
+         → Get School District Rating → Add School Feature
+         → Model.predict() → Price Prediction
 """
 
-from house_price_prediction.data import load_dataset_from_arcgis_api
 import httpx
 import pandas as pd
 import numpy as np
-from typing import Dict, Tuple, Optional
-import requests
+from typing import Dict, Optional, Tuple
 from datetime import datetime
-import sys
-
-sys.path.insert(0, 'src')
+import glob
+from pathlib import Path
+import joblib
 
 
 class AssessorAPIConnector:
-    """Connects to King County Assessor API to fetch property data."""
+    """Property lookup from APIs and state CSV files."""
 
-    BASE_URL = "https://dor.wa.gov/"  # King County Assessor endpoint
+    # Base path for state housing data
+    CSV_BASE_PATH = 'data/raw/HousingPriceUSA'
 
     @staticmethod
     def search_property_by_address(address: str) -> Dict:
         """
-        Search King County Assessor database by address.
-
-        Args:
-            address: Full address (e.g., "123 Oak St, Seattle, WA 98101")
-
-        Returns:
-            Dict with property data from assessor records
+        Get property data from APIs or state CSV files only.
         """
-        print(f"[ASSESSOR] Querying King County Assessor for: {address}")
+        print(f"[PROPERTY-LOOKUP] Searching for: {address}")
 
         try:
-            # King County Assessor API endpoint for property search
-            # Note: Actual endpoint varies by county
-            search_url = "https://dor.wa.gov/taxes-rates/other-taxes/real-estate-excise-tax"
+            # Step 1: Try state CSV files
+            print(f"[FALLBACK] Attempting CSV lookup by state...")
+            property_data = AssessorAPIConnector._lookup_from_csv(address)
+            if property_data:
+                print(f"[OK] Retrieved from state CSV database")
+                return property_data
 
-            # For this implementation, we'll use a simulated response
-            # In production, you'd make actual HTTP calls to the assessor API
-            property_data = AssessorAPIConnector._simulate_assessor_response(
-                address)
-
-            print(f"[OK] Found property record")
-            return property_data
+            # No data available - raise error
+            raise Exception(f"No data source available for {address} - no CSV files found for state")
 
         except Exception as e:
-            print(f"[ERROR] Assessor API error: {e}")
+            print(f"[ERROR] Lookup failed: {e}")
             raise
 
     @staticmethod
-    def _simulate_assessor_response(address: str) -> Dict:
+    def _lookup_from_csv(address: str) -> Optional[Dict]:
         """
-        Simulate assessor response until real API is configured.
-        In production, this would be an actual HTTP call.
+        Load property data from state-specific CSV files in HousingPriceUSA folder.
+        Automatically finds all CSV files matching the state code.
         """
-        # These are the 15 property features the model expects
-        property_data = {
-            'address': address,
-            'LotArea': np.random.uniform(4000, 15000),   # Lot area (sq ft)
-            'OverallQual': np.random.randint(5, 10),     # Overall quality (1-10)
-            'OverallCond': np.random.randint(5, 9),      # Overall condition (1-10)
-            'YearBuilt': np.random.randint(1950, 2015),  # Year built
-            'YearRemodAdd': np.random.randint(1980, 2020),  # Year remodeled
-            'GrLivArea': np.random.uniform(1200, 4500),  # Ground living area (sq ft)
-            'FullBath': np.random.randint(1, 4),         # Full bathrooms
-            'HalfBath': np.random.randint(0, 2),         # Half bathrooms
-            'BedroomAbvGr': np.random.randint(2, 6),     # Bedrooms above ground
-            'TotRmsAbvGrd': np.random.randint(5, 14),    # Total rooms above ground
-            'Fireplaces': np.random.randint(0, 3),       # Number of fireplaces
-            'GarageCars': np.random.randint(1, 4),       # Garage capacity (cars)
-            'GarageArea': np.random.uniform(400, 1200),  # Garage area (sq ft)
-            'Neighborhood': np.random.choice(['Downtown', 'Suburban', 'Urban', 'Rural']),
-            'HouseStyle': np.random.choice(['Ranch', 'Colonial', 'Cape Cod', 'Contemporary']),
-            # Target: Home value/price
-            'price': np.random.uniform(200000, 750000),
-        }
+        """
+        Load property data from state-specific CSV files in HousingPriceUSA folder.
+        Automatically finds all CSV files matching the state code.
+        """
+        try:
+            import pandas as pd
+            from pathlib import Path
+            import glob
 
-        return property_data
+            # Extract state from address
+            parts = [p.strip() for p in address.split(',')]
+            state_zip = parts[-1] if len(parts) > 2 else ''
+            state_code = state_zip.split()[-2].upper() if state_zip else ''
+
+            print(f"[CSV] Looking for state: {state_code}")
+
+            if not state_code or len(state_code) != 2:
+                print(f"[CSV] Invalid state code: {state_code}")
+                return None
+
+            # Search for all CSV files matching the state code in HousingPriceUSA folder
+            base_path = Path(AssessorAPIConnector.CSV_BASE_PATH)
+
+            if not base_path.exists():
+                print(f"[CSV] Base path not found: {base_path}")
+                return None
+
+            # Find all files like TX-1.csv, TX-2.csv, etc.
+            pattern = str(base_path / f"{state_code}-*.csv")
+            csv_files = sorted(glob.glob(pattern))
+
+            if not csv_files:
+                print(f"[CSV] No CSV files found for state: {state_code}")
+                return None
+
+            print(f"[CSV] Found {len(csv_files)} file(s) for {state_code}")
+
+            all_data = []
+
+            for csv_path in csv_files:
+                print(f"[CSV] Loading from: {csv_path}")
+                try:
+                    df = pd.read_csv(csv_path)
+                    all_data.append(df)
+                except Exception as e:
+                    print(f"[CSV] Error loading {csv_path}: {e}")
+                    continue
+
+            if not all_data:
+                print(f"[CSV] No valid CSV files could be loaded for state: {state_code}")
+                return None
+
+            # Combine all dataframes
+            combined_df = pd.concat(all_data, ignore_index=True)
+            print(f"[CSV] Loaded {len(combined_df)} properties from {len(all_data)} file(s)")
+
+            if len(combined_df) == 0:
+                return None
+
+            # Map column names from different CSV formats
+            # Handle both old format (Housing.csv) and new format (HousingPriceUSA)
+            col_mapping = {
+                'LOT SIZE': 'LotArea',
+                'SQUARE FEET': 'GrLivArea',
+                'BEDS': 'BedroomAbvGr',
+                'BATHS': 'FullBath',
+                'YEAR BUILT': 'YearBuilt',
+                'PRICE': 'SalePrice',
+                # Original format columns (already correct)
+            }
+
+            # Rename columns
+            for old_col, new_col in col_mapping.items():
+                if old_col in combined_df.columns:
+                    combined_df[new_col] = combined_df[old_col]
+
+            # Extract numeric values and handle missing data
+            lot_area = float(combined_df['LotArea'].median()) if 'LotArea' in combined_df else 10000
+            grliv_area = float(combined_df['GrLivArea'].median()) if 'GrLivArea' in combined_df else 2000
+            bedrooms = int(combined_df['BedroomAbvGr'].median()) if 'BedroomAbvGr' in combined_df else 3
+            bathrooms = float(combined_df['FullBath'].median()) if 'FullBath' in combined_df else 2.0
+            year_built = int(combined_df['YearBuilt'].median()) if 'YearBuilt' in combined_df else 1995
+            sale_price = float(combined_df['SalePrice'].median()) if 'SalePrice' in combined_df else 500000
+
+            full_baths = int(bathrooms)
+            half_baths = 1 if (bathrooms % 1 > 0.3) else 0
+
+            # Use median values from combined CSV data
+            median_property = {
+                'LotArea': lot_area,
+                'OverallQual': 6,
+                'OverallCond': 7,
+                'YearBuilt': year_built,
+                'YearRemodAdd': int(year_built + 10),
+                'GrLivArea': grliv_area,
+                'FullBath': full_baths,
+                'HalfBath': half_baths,
+                'BedroomAbvGr': bedrooms,
+                'TotRmsAbvGrd': bedrooms + full_baths + 3,
+                'Fireplaces': 1,
+                'GarageCars': 2,
+                'GarageArea': grliv_area * 0.2,
+                'Neighborhood': 'Suburban',
+                'HouseStyle': 'Two Story',
+                'price': sale_price,
+                'address': address,
+                'source': f'CSV Statistics ({state_code})',
+            }
+
+            print(f"[CSV] Using median: {bedrooms}BR, {full_baths}.{half_baths}BA, {grliv_area:,.0f}sqft, ${sale_price:,.0f}")
+            return median_property
+
+        except Exception as e:
+            print(f"[CSV] Lookup failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
 
 
 class GeocodeAndCensus:
@@ -190,24 +275,6 @@ class GeocodeAndCensus:
 
         print(f"[OK] Census data retrieved")
         return census_data
-
-
-class FeatureEngineer:
-    """Derive missing/additional features."""
-
-    @staticmethod
-    def derive_school_rating(census_data: Dict) -> float:
-        """
-        Derive school rating from Census education data.
-        In production, query actual school district API.
-        """
-        # Simple heuristic: higher income areas = better schools
-        income_normalized = (
-            census_data['MedianIncome'] - 30000) / (150000 - 30000)
-        school_rating = 3 + (income_normalized * 5) + np.random.normal(0, 0.5)
-        school_rating = max(1, min(10, school_rating))  # Clamp to 1-10
-
-        return school_rating
 
 
 class SchoolDistrictFeature:

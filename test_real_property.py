@@ -3,12 +3,12 @@ Test the API with REAL Seattle area properties
 Uses realistic property data based on actual market listings
 """
 
+import json
+from house_price_prediction.app import app
+from fastapi.testclient import TestClient
 import sys
 sys.path.insert(0, 'src')
 
-from fastapi.testclient import TestClient
-from house_price_prediction.app import app
-import json
 
 # Real Seattle properties (based on actual MLS data / public records)
 REAL_PROPERTIES = {
@@ -137,13 +137,18 @@ def test_real_property(property_name, property_data):
     print(f"TESTING: {property_name}")
     print(f"{'='*80}")
     print(f"Address: {property_data['address']}")
-    print(f"Built: {property_data['YearBuilt']} | Remodeled: {property_data['YearRemodAdd']}")
-    print(f"Size: {property_data['GrLivArea']:,.0f} sq ft | Lot: {property_data['LotArea']:,.0f} sq ft")
-    print(f"Bedrooms: {property_data['BedroomAbvGr']} | Full Baths: {property_data['FullBath']} | Half Baths: {property_data['HalfBath']}")
-    print(f"Quality: {property_data['OverallQual']}/10 | Condition: {property_data['OverallCond']}/10")
+    print(
+        f"Built: {property_data['YearBuilt']} | Remodeled: {property_data['YearRemodAdd']}")
+    print(
+        f"Size: {property_data['GrLivArea']:,.0f} sq ft | Lot: {property_data['LotArea']:,.0f} sq ft")
+    print(
+        f"Bedrooms: {property_data['BedroomAbvGr']} | Full Baths: {property_data['FullBath']} | Half Baths: {property_data['HalfBath']}")
+    print(
+        f"Quality: {property_data['OverallQual']}/10 | Condition: {property_data['OverallCond']}/10")
 
     # Call API with real property data
-    response = client.post("/predict", json={"address": property_data['address']})
+    response = client.post(
+        "/predict", json={"address": property_data['address']})
 
     if response.status_code == 200:
         result = response.json()
@@ -155,7 +160,8 @@ def test_real_property(property_name, property_data):
         print(f"\nEstimated Price: ${result['predicted_price']:,.2f}")
         print(f"Confidence: {result['confidence']:.1f}%")
         print(f"Error Margin: ±${result['error_margin']:,.2f}")
-        print(f"Price Range: ${result['error_margin_low']:,.2f} - ${result['error_margin_high']:,.2f}")
+        print(
+            f"Price Range: ${result['error_margin_low']:,.2f} - ${result['error_margin_high']:,.2f}")
 
         return result['predicted_price']
     else:

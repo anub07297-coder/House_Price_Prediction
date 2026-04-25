@@ -4,18 +4,19 @@ Calculate price for the ACTUAL property: 292 Traditions Dr, Alpharetta, GA
 Using REAL property specifications from Redfin
 """
 
+import json
+from house_price_prediction.app import app
+from fastapi.testclient import TestClient
+from house_price_prediction.address_to_price import PricePredictionPipeline, SchoolDistrictFeature
 import sys
 sys.path.insert(0, 'src')
 
-from house_price_prediction.address_to_price import PricePredictionPipeline, SchoolDistrictFeature
-from fastapi.testclient import TestClient
-from house_price_prediction.app import app
-import json
 
 # ACTUAL PROPERTY DATA FROM REDFIN
 ACTUAL_TRADITIONS_DR = {
     "address": "292 Traditions Dr, Alpharetta, GA 30004",
-    "LotArea": 950 * 43560,        # 950 acres converted to sq ft (43,560 sqft per acre)
+    # 950 acres converted to sq ft (43,560 sqft per acre)
+    "LotArea": 950 * 43560,
     "OverallQual": 9,              # Luxury estate - highest quality
     "OverallCond": 9,              # Pristine condition
     "YearBuilt": 2005,             # Luxury estate build year (estimated)
@@ -24,7 +25,8 @@ ACTUAL_TRADITIONS_DR = {
     "FullBath": 5,                 # ACTUAL: 5 full baths
     "HalfBath": 1,                 # ACTUAL: 5.5 = 5 + 1
     "BedroomAbvGr": 5,             # ACTUAL: 5 bedrooms
-    "TotRmsAbvGrd": 18,            # Estimated total rooms (5 bed + 5.5 bath + living areas)
+    # Estimated total rooms (5 bed + 5.5 bath + living areas)
+    "TotRmsAbvGrd": 18,
     "Fireplaces": 3,               # Typical luxury estate
     "GarageCars": 4,               # Large estate garage
     "GarageArea": 1800,            # Large luxury garage
@@ -45,9 +47,12 @@ print("\nActual Property Specifications from Redfin:")
 print(f"  Address:           292 Traditions Dr, Alpharetta, GA 30004")
 print(f"  Actual Price:      ${ACTUAL_PRICE_REDFIN:,.2f}")
 print(f"  Price per SqFt:    ${ACTUAL_PRICE_PER_SQFT:.0f}")
-print(f"  Living Area:       {ACTUAL_TRADITIONS_DR['GrLivArea']:,.0f} sq ft (ACTUAL: 11,947)")
-print(f"  Lot Size:          {ACTUAL_TRADITIONS_DR['LotArea']:,.0f} sq ft (ACTUAL: 950 acres = 41,382,000 sq ft)")
-print(f"  Bedrooms:          {ACTUAL_TRADITIONS_DR['BedroomAbvGr']} (ACTUAL: 5)")
+print(
+    f"  Living Area:       {ACTUAL_TRADITIONS_DR['GrLivArea']:,.0f} sq ft (ACTUAL: 11,947)")
+print(
+    f"  Lot Size:          {ACTUAL_TRADITIONS_DR['LotArea']:,.0f} sq ft (ACTUAL: 950 acres = 41,382,000 sq ft)")
+print(
+    f"  Bedrooms:          {ACTUAL_TRADITIONS_DR['BedroomAbvGr']} (ACTUAL: 5)")
 print(f"  Full Bathrooms:    {ACTUAL_TRADITIONS_DR['FullBath']} (ACTUAL: 5)")
 print(f"  Half Bathrooms:    {ACTUAL_TRADITIONS_DR['HalfBath']} (ACTUAL: 0.5)")
 
@@ -59,25 +64,40 @@ features_dict = ACTUAL_TRADITIONS_DR.copy()
 features_dict.pop('address')
 
 print("PROPERTY STRUCTURAL FEATURES (9):")
-print(f"  1. GrLivArea (Ground Living Area):  {features_dict['GrLivArea']:>12,.0f} sq ft")
-print(f"  2. LotArea (Lot Size):              {features_dict['LotArea']:>12,.0f} sq ft (950 acres)")
-print(f"  3. GarageArea (Garage Size):        {features_dict['GarageArea']:>12,.0f} sq ft")
-print(f"  4. BedroomAbvGr (Bedrooms):         {features_dict['BedroomAbvGr']:>12.0f}")
-print(f"  5. FullBath (Full Bathrooms):       {features_dict['FullBath']:>12.0f}")
-print(f"  6. HalfBath (Half Bathrooms):       {features_dict['HalfBath']:>12.0f}")
-print(f"  7. TotRmsAbvGrd (Total Rooms):      {features_dict['TotRmsAbvGrd']:>12.0f}")
-print(f"  8. Fireplaces:                      {features_dict['Fireplaces']:>12.0f}")
-print(f"  9. GarageCars (Garage Capacity):    {features_dict['GarageCars']:>12.0f} cars")
+print(
+    f"  1. GrLivArea (Ground Living Area):  {features_dict['GrLivArea']:>12,.0f} sq ft")
+print(
+    f"  2. LotArea (Lot Size):              {features_dict['LotArea']:>12,.0f} sq ft (950 acres)")
+print(
+    f"  3. GarageArea (Garage Size):        {features_dict['GarageArea']:>12,.0f} sq ft")
+print(
+    f"  4. BedroomAbvGr (Bedrooms):         {features_dict['BedroomAbvGr']:>12.0f}")
+print(
+    f"  5. FullBath (Full Bathrooms):       {features_dict['FullBath']:>12.0f}")
+print(
+    f"  6. HalfBath (Half Bathrooms):       {features_dict['HalfBath']:>12.0f}")
+print(
+    f"  7. TotRmsAbvGrd (Total Rooms):      {features_dict['TotRmsAbvGrd']:>12.0f}")
+print(
+    f"  8. Fireplaces:                      {features_dict['Fireplaces']:>12.0f}")
+print(
+    f"  9. GarageCars (Garage Capacity):    {features_dict['GarageCars']:>12.0f} cars")
 
 print("\nPROPERTY AGE & CONDITION FEATURES (4):")
-print(f"  10. YearBuilt:                      {features_dict['YearBuilt']:>12.0f}")
-print(f"  11. YearRemodAdd (Year Remodeled):  {features_dict['YearRemodAdd']:>12.0f}")
-print(f"  12. OverallQual (Quality Rating):   {features_dict['OverallQual']:>12.0f}/10")
-print(f"  13. OverallCond (Condition Rating): {features_dict['OverallCond']:>12.0f}/10")
+print(
+    f"  10. YearBuilt:                      {features_dict['YearBuilt']:>12.0f}")
+print(
+    f"  11. YearRemodAdd (Year Remodeled):  {features_dict['YearRemodAdd']:>12.0f}")
+print(
+    f"  12. OverallQual (Quality Rating):   {features_dict['OverallQual']:>12.0f}/10")
+print(
+    f"  13. OverallCond (Condition Rating): {features_dict['OverallCond']:>12.0f}/10")
 
 print("\nPROPERTY CLASSIFICATION FEATURES (2):")
-print(f"  14. Neighborhood:                   {features_dict['Neighborhood']:>20s}")
-print(f"  15. HouseStyle:                     {features_dict['HouseStyle']:>20s}")
+print(
+    f"  14. Neighborhood:                   {features_dict['Neighborhood']:>20s}")
+print(
+    f"  15. HouseStyle:                     {features_dict['HouseStyle']:>20s}")
 
 print("\n" + "="*120)
 print("STEP 3: FETCHING SCHOOL DISTRICT DATA FROM FREE API")
@@ -104,7 +124,8 @@ print("Making prediction with FastAPI endpoint: POST /predict\n")
 
 # Use the pipeline directly
 pipeline = PricePredictionPipeline()
-result = pipeline.predict_price(ACTUAL_TRADITIONS_DR['address'], real_features=ACTUAL_TRADITIONS_DR.copy())
+result = pipeline.predict_price(
+    ACTUAL_TRADITIONS_DR['address'], real_features=ACTUAL_TRADITIONS_DR.copy())
 
 print("\n" + "="*120)
 print("STEP 5: MODEL PREDICTION RESULTS")
@@ -126,7 +147,8 @@ pct_error = (difference / ACTUAL_PRICE_REDFIN) * 100
 
 print(f"{'Metric':<35} {'Model Estimate':>20} {'Actual (Redfin)':>20} {'Difference':>20}")
 print("-"*120)
-print(f"{'Price':<35} ${result['predicted_price']:>18,.0f} ${ACTUAL_PRICE_REDFIN:>18,.0f} ${difference:>18,.0f}")
+print(
+    f"{'Price':<35} ${result['predicted_price']:>18,.0f} ${ACTUAL_PRICE_REDFIN:>18,.0f} ${difference:>18,.0f}")
 print(f"{'Price per Sq Ft':<35} ${result['predicted_price']/ACTUAL_TRADITIONS_DR['GrLivArea']:>18.0f} ${ACTUAL_PRICE_PER_SQFT:>18.0f} ${(result['predicted_price']/ACTUAL_TRADITIONS_DR['GrLivArea']-ACTUAL_PRICE_PER_SQFT):>18.0f}")
 print(f"{'Accuracy':<35} {' '*20} {' '*20} {pct_error:>18.1f}% ERROR")
 

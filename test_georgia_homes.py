@@ -3,10 +3,10 @@ Test the API with REAL Georgia single-family homes
 Uses realistic property data for Georgia properties
 """
 
+from house_price_prediction.address_to_price import SchoolDistrictFeature, PricePredictionPipeline
 import sys
 sys.path.insert(0, 'src')
 
-from house_price_prediction.address_to_price import SchoolDistrictFeature, PricePredictionPipeline
 
 # Add Georgia school districts to the database
 SchoolDistrictFeature.SCHOOL_DISTRICT_DB.update({
@@ -192,16 +192,20 @@ def main():
 
         addr = features.pop('address')
         print(f"Address: {addr}")
-        print(f"  Details: {features['BedroomAbvGr']} bed, {features['FullBath']} full bath, {features['GrLivArea']:,.0f} sq ft")
-        print(f"  Built: {features['YearBuilt']} | Quality: {features['OverallQual']}/10 | Condition: {features['OverallCond']}/10")
+        print(
+            f"  Details: {features['BedroomAbvGr']} bed, {features['FullBath']} full bath, {features['GrLivArea']:,.0f} sq ft")
+        print(
+            f"  Built: {features['YearBuilt']} | Quality: {features['OverallQual']}/10 | Condition: {features['OverallCond']}/10")
         print(f"  Lot Size: {features['LotArea']:,.0f} sq ft")
 
         result = pipeline.predict_price(addr, real_features=features)
 
-        print(f"\n  School District: {result['school_district']} ({result['school_rating']:.1f}/10)")
+        print(
+            f"\n  School District: {result['school_district']} ({result['school_rating']:.1f}/10)")
         print(f"  ESTIMATED PRICE: ${result['predicted_price']:,.2f}")
         print(f"  Confidence: {result['confidence']:.1f}%")
-        print(f"  Price Range: ${result['error_margin_low']:,.2f} - ${result['error_margin_high']:,.2f}")
+        print(
+            f"  Price Range: ${result['error_margin_low']:,.2f} - ${result['error_margin_high']:,.2f}")
 
         results.append({
             'name': prop_name,
@@ -236,8 +240,10 @@ def main():
 
     # Price insights
     print("KEY INSIGHTS:")
-    print(f"  Highest: {max(results, key=lambda x: x['price'])['name']} - ${max(r['price'] for r in results):,.0f}")
-    print(f"  Lowest: {min(results, key=lambda x: x['price'])['name']} - ${min(r['price'] for r in results):,.0f}")
+    print(
+        f"  Highest: {max(results, key=lambda x: x['price'])['name']} - ${max(r['price'] for r in results):,.0f}")
+    print(
+        f"  Lowest: {min(results, key=lambda x: x['price'])['name']} - ${min(r['price'] for r in results):,.0f}")
     print(f"  Average: ${avg:,.0f}")
     print(f"  Average Price/SqFt: ${avg_price_sqft:.0f}")
     print()
