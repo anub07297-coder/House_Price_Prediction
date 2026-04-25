@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from house_price_prediction.api.routers import (
     dashboard,
     health,
+    meta,
     policies,
     predictions,
     properties,
@@ -69,6 +70,7 @@ def create_app(
             property_enrichment_service=enrichment_service,
             geocoding_provider=selected_geocoding_provider,
             prediction_reuse_max_age_hours=app_settings.prediction_reuse_max_age_hours,
+            provider_response_cache_max_age_hours=app_settings.provider_response_cache_max_age_hours,
             settings=app_settings,
         )
         yield
@@ -80,6 +82,7 @@ def create_app(
     )
     app.include_router(dashboard.router)
     app.include_router(health.router)
+    app.include_router(meta.router)
     app.include_router(policies.router)
     app.include_router(predictions.router)
     app.include_router(properties.router)

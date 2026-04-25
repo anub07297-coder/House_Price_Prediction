@@ -52,6 +52,7 @@ class DataOrchestrationLayer:
         property_enrichment_service: PropertyEnrichmentService,
         geocoding_provider: GeocodingProvider,
         prediction_reuse_max_age_hours: int,
+        provider_response_cache_max_age_hours: int,
     ) -> None:
         self._session_factory = session_factory
         self._feature_assembly_service = feature_assembly_service
@@ -59,6 +60,7 @@ class DataOrchestrationLayer:
         self._property_enrichment_service = property_enrichment_service
         self._geocoding_provider = geocoding_provider
         self._prediction_reuse_max_age_hours = prediction_reuse_max_age_hours
+        self._provider_response_cache_max_age_hours = provider_response_cache_max_age_hours
 
     def normalize_address(self, payload: AddressPayload) -> NormalizedAddress:
         return self._normalize(payload).normalized_address
@@ -69,8 +71,8 @@ class DataOrchestrationLayer:
         policy_names: list[str] | None = None,
     ) -> FeaturePolicySimulationResponse:
         normalization_result = self._normalize(payload)
-        provider_response = self._property_enrichment_service.build_property_record(
-            normalization_result.normalized_address
+        provider_response = self._build_property_record_with_cache(
+            normalized_address=normalization_result.normalized_address,
         )
 
         selected_policy_names = policy_names or list(self._feature_assembly_service.available_policy_names())
@@ -124,8 +126,8 @@ class DataOrchestrationLayer:
         expectations: BaselineExpectationsInput | None = None,
     ) -> AddressBaselineResponse:
         normalization_result = self._normalize(payload)
-        provider_response = self._property_enrichment_service.build_property_record(
-            normalization_result.normalized_address
+        provider_response = self._build_property_record_with_cache(
+            normalized_address=normalization_result.normalized_address,
         )
 
         feature_vector = self._feature_assembly_service.assemble(
@@ -400,9 +402,11 @@ class DataOrchestrationLayer:
                         selected_feature_policy_version=reusable_prediction.selected_feature_policy_version,
                     )
 
-                provider_response = self._property_enrichment_service.build_property_record(
-                    normalization_result.normalized_address
+                provider_response = self._build_property_record_with_cache(
+                    normalized_address=normalization_result.normalized_address,
+                    repository=repository,
                 )
+                provider_cache_hit = provider_response.payload.get("provider_cache", {}).get("hit") is True
                 repository.create_provider_response(
                     request_id=command.request_id,
                     provider_response=provider_response,
@@ -415,6 +419,7 @@ class DataOrchestrationLayer:
                         payload={
                             "provider_name": provider_response.provider_name,
                             "status": provider_response.status,
+                            "provider_cache_hit": provider_cache_hit,
                         },
                         occurred_at=provider_response.fetched_at,
                     ),
@@ -537,6 +542,40 @@ class DataOrchestrationLayer:
             normalized_address=geocoding_result.normalized_address,
             geocoding_provider_response=geocoding_result.provider_response,
         )
+
+    def _build_property_record_with_cache(
+        self,
+        normalized_address: NormalizedAddress,
+        repository: PredictionRepository | None = None,
+    ) -> ProviderResponseContract:
+        if repository is None:
+            with self._session_factory() as session:
+                cache_repo = PredictionRepository(session)
+                cached = cache_repo.find_recent_property_response_for_address(
+                    normalized_address=normalized_address,
+                    max_age_hours=self._provider_response_cache_max_age_hours,
+                )
+        else:
+            cached = repository.find_recent_property_response_for_address(
+                normalized_address=normalized_address,
+                max_age_hours=self._provider_response_cache_max_age_hours,
+            )
+
+        if cached is not None:
+            cached_payload = dict(cached.payload)
+            cached_payload["provider_cache"] = {
+                "hit": True,
+                "source_provider_name": cached.provider_name,
+                "source_fetched_at": cached.fetched_at.isoformat(),
+            }
+            return ProviderResponseContract(
+                provider_name=f"{cached.provider_name}_cache",
+                status="success",
+                payload=cached_payload,
+                fetched_at=datetime.now(UTC),
+            )
+
+        return self._property_enrichment_service.build_property_record(normalized_address)
 
     def _initialize_request_tracking(
         self,

@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from house_price_prediction.domain.contracts.prediction_contracts import (
     FeatureSnapshotSummary,
     FeatureVectorContract,
+    LiveFeatureCandidateItem,
+    LiveFeatureCandidatesResponse,
     NormalizedAddress,
     PredictionDetailResponse,
     PredictionListItem,
@@ -99,6 +101,50 @@ class PredictionRepository:
             )
         )
         return normalized_address_id
+
+    def find_recent_property_response_for_address(
+        self,
+        normalized_address: NormalizedAddress,
+        max_age_hours: int,
+    ) -> ProviderResponseContract | None:
+        if max_age_hours <= 0:
+            return None
+
+        normalized_address_id = self._session.scalar(
+            select(NormalizedAddressModel.id).where(
+                NormalizedAddressModel.formatted_address == normalized_address.formatted_address
+            )
+        )
+        if normalized_address_id is None:
+            return None
+
+        cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
+        rows = (
+            self._session.query(ProviderResponseModel)
+            .join(PredictionRequestModel, PredictionRequestModel.id == ProviderResponseModel.request_id)
+            .filter(PredictionRequestModel.normalized_address_id == normalized_address_id)
+            .filter(ProviderResponseModel.status == "success")
+            .filter(ProviderResponseModel.fetched_at >= cutoff)
+            .order_by(ProviderResponseModel.fetched_at.desc())
+            .limit(50)
+            .all()
+        )
+
+        # Keep only responses that look like property feature payloads.
+        required_feature_keys = {"LotArea", "OverallQual", "GrLivArea"}
+        for row in rows:
+            payload = row.payload
+            if not isinstance(payload, dict):
+                continue
+            if len(required_feature_keys.intersection(payload.keys())) < 2:
+                continue
+            return ProviderResponseContract(
+                provider_name=row.provider_name,
+                status=row.status,
+                payload=payload,
+                fetched_at=row.fetched_at,
+            )
+        return None
 
     def register_model_version(
         self,
@@ -531,6 +577,136 @@ class PredictionRepository:
             event_name=event_name,
             sort=sort,
             events=events,
+        )
+
+    def list_live_feature_candidates(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        min_completeness_score: float = 0.0,
+        include_reused: bool = False,
+    ) -> LiveFeatureCandidatesResponse:
+        base_query = (
+            select(PredictionModel.id)
+            .join(PredictionRequestModel, PredictionRequestModel.id == PredictionModel.request_id)
+            .join(FeatureSnapshotModel, FeatureSnapshotModel.id == PredictionModel.feature_snapshot_id)
+            .where(PredictionRequestModel.status == "completed")
+            .where(FeatureSnapshotModel.completeness_score >= min_completeness_score)
+        )
+        if not include_reused:
+            base_query = base_query.where(PredictionModel.was_reused.is_(False))
+
+        total = self._session.scalar(select(func.count()).select_from(base_query.subquery())) or 0
+
+        rows_query = (
+            select(PredictionModel, PredictionRequestModel, FeatureSnapshotModel, NormalizedAddressModel)
+            .join(PredictionRequestModel, PredictionRequestModel.id == PredictionModel.request_id)
+            .join(FeatureSnapshotModel, FeatureSnapshotModel.id == PredictionModel.feature_snapshot_id)
+            .join(
+                NormalizedAddressModel,
+                NormalizedAddressModel.id == PredictionRequestModel.normalized_address_id,
+            )
+            .where(PredictionRequestModel.status == "completed")
+            .where(FeatureSnapshotModel.completeness_score >= min_completeness_score)
+            .order_by(PredictionModel.generated_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        if not include_reused:
+            rows_query = rows_query.where(PredictionModel.was_reused.is_(False))
+
+        rows = self._session.execute(rows_query).all()
+
+        if not rows:
+            return LiveFeatureCandidatesResponse(
+                contract_version="2026-04-17",
+                generated_at=datetime.now(UTC),
+                total=int(total),
+                limit=limit,
+                offset=offset,
+                min_completeness_score=min_completeness_score,
+                include_reused=include_reused,
+                items=[],
+            )
+
+        request_ids = [request.id for _, request, _, _ in rows]
+        provider_rows = self._session.execute(
+            select(ProviderResponseModel)
+            .where(ProviderResponseModel.request_id.in_(request_ids))
+            .order_by(ProviderResponseModel.fetched_at.asc())
+        ).scalars().all()
+
+        provider_by_request: dict[str, list[ProviderResponseContract]] = {}
+        for row in provider_rows:
+            provider_by_request.setdefault(row.request_id, []).append(
+                ProviderResponseContract(
+                    provider_name=row.provider_name,
+                    status=row.status,
+                    payload=row.payload,
+                    fetched_at=row.fetched_at,
+                )
+            )
+
+        items: list[LiveFeatureCandidateItem] = []
+        for prediction, request, feature_snapshot, norm_addr in rows:
+            provider_responses = provider_by_request.get(request.id, [])
+            feature_source = self._find_feature_source(provider_responses)
+
+            latest_property_provider_name: str | None = None
+            for provider_response in reversed(provider_responses):
+                payload = provider_response.payload
+                if isinstance(payload, dict) and any(
+                    key in payload for key in ("LotArea", "OverallQual", "GrLivArea")
+                ):
+                    latest_property_provider_name = provider_response.provider_name
+                    break
+
+            normalized_address = NormalizedAddress(
+                address_line_1=" ".join(request.address_line_1.strip().upper().split()),
+                address_line_2=(
+                    " ".join(request.address_line_2.strip().upper().split())
+                    if request.address_line_2
+                    else None
+                ),
+                city=" ".join(request.city.strip().upper().split()),
+                state=request.state.strip().upper(),
+                postal_code=request.postal_code.strip().upper(),
+                country=request.country.strip().upper(),
+                formatted_address=request.normalized_address,
+                latitude=norm_addr.latitude,
+                longitude=norm_addr.longitude,
+                geocoding_source=norm_addr.geocoding_source,
+            )
+
+            items.append(
+                LiveFeatureCandidateItem(
+                    prediction_id=UUID(prediction.id),
+                    request_id=UUID(request.id),
+                    submitted_at=request.submitted_at,
+                    generated_at=prediction.generated_at,
+                    predicted_price=prediction.predicted_price,
+                    completeness_score=feature_snapshot.completeness_score,
+                    was_reused=prediction.was_reused,
+                    model_name=prediction.model_name,
+                    model_version=prediction.model_version,
+                    selected_feature_policy_name=request.feature_policy_name,
+                    selected_feature_policy_version=request.feature_policy_version,
+                    feature_source=feature_source,
+                    provider_name=latest_property_provider_name,
+                    normalized_address=normalized_address,
+                    features=dict(feature_snapshot.features),
+                )
+            )
+
+        return LiveFeatureCandidatesResponse(
+            contract_version="2026-04-17",
+            generated_at=datetime.now(UTC),
+            total=int(total),
+            limit=limit,
+            offset=offset,
+            min_completeness_score=min_completeness_score,
+            include_reused=include_reused,
+            items=items,
         )
 
     def _list_workflow_events(

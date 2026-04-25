@@ -217,7 +217,16 @@ def load_dataset(path: Path | None = None) -> pd.DataFrame:
         print(f"CSV not found at {path}, falling back to live Census API...")
         return load_dataset_from_census_api()
 
-    return pd.read_csv(path)
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(path)
+    if suffix in {".jsonl", ".ndjson"}:
+        return pd.read_json(path, lines=True)
+    if suffix == ".json":
+        return pd.read_json(path)
+    raise ValueError(
+        f"Unsupported dataset file type '{suffix}'. Supported: .csv, .jsonl, .ndjson, .json"
+    )
 
 
 def split_features_target(df: pd.DataFrame, target_column: str) -> tuple[pd.DataFrame, pd.Series]:

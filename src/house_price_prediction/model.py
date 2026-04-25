@@ -42,12 +42,19 @@ class TrainedModelArtifact:
 
 
 def train_and_save_model(settings: Settings) -> dict[str, float]:
-    # Load from live Census API by default (pass None to use API)
-    # Only use local CSV if it exists and user explicitly configured it
+    # Load from live Census API by default; use local file if it exists
     csv_path = Path(settings.raw_data_path) if settings.raw_data_path else None
     use_local = csv_path and csv_path.exists()
 
     df = load_dataset(csv_path if use_local else None)
+    minimum_rows = max(0, int(getattr(settings, "training_min_rows", 0)))
+    if minimum_rows and len(df) < minimum_rows:
+        raise ValueError(
+            "Not enough rows to train model reliably: "
+            f"required at least {minimum_rows}, found {len(df)}."
+        )
+
+
     x, y = split_features_target(df, settings.target_column)
     x_train, x_test, y_train, y_test = make_train_test_split(
         x, y, test_size=settings.test_size, random_state=settings.random_state
@@ -108,10 +115,14 @@ def train_and_save_model(settings: Settings) -> dict[str, float]:
     model.fit(x_train, y_train)
     predictions = model.predict(x_test)
 
+    r2_value = float("nan")
+    if len(y_test) >= 2:
+        r2_value = float(r2_score(y_test, predictions))
+
     metrics = {
         "mae": float(mean_absolute_error(y_test, predictions)),
         "rmse": float(np.sqrt(mean_squared_error(y_test, predictions))),
-        "r2": float(r2_score(y_test, predictions)),
+        "r2": r2_value,
     }
 
     settings.model_path.parent.mkdir(parents=True, exist_ok=True)
