@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from .address_to_price import PricePredictionPipeline
 import logging
+import pandas as pd
+from pathlib import Path
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -143,6 +145,111 @@ async def batch_predict(addresses: list[AddressRequest]):
                 "error": e.detail
             })
     return results
+
+
+@app.get("/v1/meta/capabilities")
+async def get_capabilities():
+    """
+    Return API capabilities and model metadata.
+    Used by training pipeline to understand API features.
+    """
+    return {
+        "contract_version": "2.0.0",
+        "model_name": "House Price Predictor",
+        "model_version": "2.0.0",
+        "feature_policy_name": "default",
+        "model_expected_features": [
+            "LotArea", "OverallQual", "OverallCond", "YearBuilt", "YearRemodAdd",
+            "GrLivArea", "FullBath", "HalfBath", "BedroomAbvGr", "TotRmsAbvGrd",
+            "Fireplaces", "GarageCars", "GarageArea",
+            "NeighborhoodScore", "CensusMedianValue", "MedianIncomeK", "OwnerOccupiedRate"
+        ]
+    }
+
+
+@app.get("/v1/meta/live-feature-candidates")
+async def get_live_feature_candidates(
+    limit: int = 100,
+    offset: int = 0,
+    min_completeness_score: float = 0.8,
+    include_reused: bool = False
+):
+    """
+    Return live feature candidates from the training dataset.
+    This endpoint is used by the training pipeline to fetch data.
+
+    For demo purposes, loads from data/processed/final_training_dataset.csv
+    In production, this would fetch from a database of prediction audit logs.
+    """
+    try:
+        csv_path = Path(__file__).parent.parent.parent / "data" / \
+            "processed" / "final_training_dataset.csv"
+        if not csv_path.exists():
+            return {
+                "items": [],
+                "total": 0,
+                "limit": limit,
+                "offset": offset,
+                "message": "Training dataset not found"
+            }
+
+        # Load the training dataset
+        df = pd.read_csv(csv_path)
+
+        # Extract features and format as candidates
+        items = []
+        for idx, row in df.iloc[offset:offset+limit].iterrows():
+            # Extract numeric features from CSV columns
+            features = {
+                "LotArea": float(row.get("LOT SIZE", 5000)) if pd.notna(row.get("LOT SIZE")) else 5000,
+                "OverallQual": float(row.get("OVERALL QUALITY", 7)) if pd.notna(row.get("OVERALL QUALITY")) else 7,
+                "OverallCond": float(row.get("OVERALL CONDITION", 7)) if pd.notna(row.get("OVERALL CONDITION")) else 7,
+                "YearBuilt": float(row.get("YEAR BUILT", 2000)) if pd.notna(row.get("YEAR BUILT")) else 2000,
+                "YearRemodAdd": float(row.get("YEAR BUILT", 2000)) if pd.notna(row.get("YEAR BUILT")) else 2000,
+                "GrLivArea": float(row.get("SQUARE FEET", 2000)) if pd.notna(row.get("SQUARE FEET")) else 2000,
+                "FullBath": float(row.get("BATHS", 2)) if pd.notna(row.get("BATHS")) else 2,
+                "HalfBath": 0,
+                "BedroomAbvGr": float(row.get("BEDS", 3)) if pd.notna(row.get("BEDS")) else 3,
+                "TotRmsAbvGrd": float(row.get("BEDS", 6)) if pd.notna(row.get("BEDS")) else 6,
+                "Fireplaces": 0,
+                "GarageCars": 2,
+                "GarageArea": 400,
+                "City": str(row.get("CITY", "Unknown")) if pd.notna(row.get("CITY")) else "Unknown",
+                "ZipCode": str(row.get("ZIP OR POSTAL CODE", "00000")) if pd.notna(row.get("ZIP OR POSTAL CODE")) else "00000",
+                "State": str(row.get("STATE OR PROVINCE", "NA")) if pd.notna(row.get("STATE OR PROVINCE")) else "NA",
+                "SchoolDistrictRating": 6.5,
+                "NeighborhoodScore": 50 + (idx % 50),
+                "CensusMedianValue": float(row.get("PRICE", 250000)) if pd.notna(row.get("PRICE")) else 250000,
+                "MedianIncomeK": 75,
+                "OwnerOccupiedRate": 0.75
+            }
+
+            item = {
+                "predicted_price": float(row.get("PRICE", 300000)) if pd.notna(row.get("PRICE")) else 300000,
+                "features": features,
+                "normalized_address": {
+                    "latitude": 33.7490 + (idx % 100) * 0.001,
+                    "longitude": -84.3880 + (idx % 100) * 0.001
+                }
+            }
+            items.append(item)
+
+        return {
+            "items": items,
+            "total": len(df),
+            "limit": limit,
+            "offset": offset,
+            "message": f"Loaded {len(items)} candidates from training dataset"
+        }
+    except Exception as e:
+        logger.error(f"Error loading candidates: {e}")
+        return {
+            "items": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+            "error": str(e)
+        }
 
 
 if __name__ == "__main__":
