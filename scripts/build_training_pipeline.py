@@ -75,6 +75,7 @@ NUMERIC_FEATURES: frozenset[str] = frozenset(
         "GrLivArea", "FullBath", "HalfBath", "BedroomAbvGr", "TotRmsAbvGrd",
         "Fireplaces", "GarageCars", "GarageArea",
         "NeighborhoodScore", "CensusMedianValue", "MedianIncomeK", "OwnerOccupiedRate",
+        "SchoolDistrictRating",
     }
 )
 
@@ -99,6 +100,10 @@ FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
     "CensusMedianValue": ("census_median_value", "census_median_home_value", "median_home_value"),
     "MedianIncomeK": ("median_income_k", "census_median_income_k"),
     "OwnerOccupiedRate": ("owner_occupied_rate", "census_owner_occupancy_rate", "owner_rate"),
+    "City": ("city",),
+    "ZipCode": ("zip_code", "zipcode", "postal_code", "zip"),
+    "State": ("state", "state_code"),
+    "SchoolDistrictRating": ("school_district_rating", "schooldistrictrating", "school_rating"),
 }
 
 _HIGH_NULL_RATE = 0.50
@@ -128,7 +133,8 @@ def _fetch_capabilities(base_url: str) -> dict[str, Any]:
     try:
         resp = requests.get(url, timeout=30)
     except requests.RequestException as exc:
-        raise SystemExit(f"Cannot reach capabilities endpoint at {url}: {exc}") from exc
+        raise SystemExit(
+            f"Cannot reach capabilities endpoint at {url}: {exc}") from exc
     resp.raise_for_status()
     return resp.json()
 
@@ -149,7 +155,8 @@ def _fetch_candidate_page(
             timeout=30,
         )
     except requests.RequestException as exc:
-        raise SystemExit(f"Cannot fetch live feature candidates from {url}: {exc}") from exc
+        raise SystemExit(
+            f"Cannot fetch live feature candidates from {url}: {exc}") from exc
     resp.raise_for_status()
     return resp.json()
 
@@ -267,7 +274,8 @@ def stage_enrich(
         prop_type = feats.get("PropertyType")
         if not prop_type:
             prop_type = classify_property_type(feats)
-        property_type_counts[prop_type] = property_type_counts.get(prop_type, 0) + 1
+        property_type_counts[prop_type] = property_type_counts.get(
+            prop_type, 0) + 1
         feats["PropertyType"] = prop_type
 
         # NeighborhoodScore
@@ -431,9 +439,12 @@ def stage_gap_analysis(
                 feature_stats[feat]["reference"] = ref_stats
                 ref_std = ref_stats["std"]
                 if ref_std and ref_std > 0 and not np.isnan(live_stats["mean"]):
-                    drift = abs(live_stats["mean"] - ref_stats["mean"]) / ref_std
-                    feature_stats[feat]["mean_drift_sigmas"] = round(float(drift), 3)
-                    dsev = "HIGH" if drift > 3.0 else ("MEDIUM" if drift > 2.0 else None)
+                    drift = abs(live_stats["mean"] -
+                                ref_stats["mean"]) / ref_std
+                    feature_stats[feat]["mean_drift_sigmas"] = round(
+                        float(drift), 3)
+                    dsev = "HIGH" if drift > 3.0 else (
+                        "MEDIUM" if drift > 2.0 else None)
                     if dsev:
                         gaps.append(FeatureGap(
                             feature=feat, severity=dsev, kind="distribution_drift",
@@ -516,10 +527,12 @@ def stage_assemble(
 
     for item in enriched_candidates:
         source_features = item.get("features", {})
-        canonical, unknown = _canonicalize_row(source_features, expected_features)
+        canonical, unknown = _canonicalize_row(
+            source_features, expected_features)
         unknown_keys.update(unknown)
 
-        raw_label = item.get("predicted_price") if label_source == "predicted" else None
+        raw_label = item.get(
+            "predicted_price") if label_source == "predicted" else None
         if raw_label is None:
             invalid_target += 1
             continue
@@ -604,14 +617,16 @@ def stage_split(
     print("[5/6] SPLIT    producing train / val / test splits ...")
     if round(1.0 - train_ratio - val_ratio, 6) < 0:
         raise ValueError("train_ratio + val_ratio must not exceed 1.0")
-    shuffled = assembled.sample(frac=1, random_state=random_state).reset_index(drop=True)
+    shuffled = assembled.sample(
+        frac=1, random_state=random_state).reset_index(drop=True)
     n = len(shuffled)
     n_train = max(1, int(round(n * train_ratio)))
     n_val = max(1, int(round(n * val_ratio)))
     train_df = shuffled.iloc[:n_train]
-    val_df = shuffled.iloc[n_train : n_train + n_val]
-    test_df = shuffled.iloc[n_train + n_val :]
-    print(f"         train={len(train_df)}  val={len(val_df)}  test={len(test_df)}")
+    val_df = shuffled.iloc[n_train: n_train + n_val]
+    test_df = shuffled.iloc[n_train + n_val:]
+    print(
+        f"         train={len(train_df)}  val={len(val_df)}  test={len(test_df)}")
     return train_df, val_df, test_df
 
 
@@ -640,10 +655,12 @@ def _build_readiness_verdict(
         for g in high[:3]:
             notes.append(f"HIGH gap: {g.message}")
         if len(high) > 3:
-            notes.append(f"...and {len(high) - 3} more HIGH gaps (see gaps list).")
+            notes.append(
+                f"...and {len(high) - 3} more HIGH gaps (see gaps list).")
     else:
         verdict = "READY"
-        notes.append("No critical or high-severity gaps. Dataset is ready for training.")
+        notes.append(
+            "No critical or high-severity gaps. Dataset is ready for training.")
     return verdict, notes
 
 
@@ -679,14 +696,18 @@ def stage_save_and_report(
 
     # splits strip lat/lon (not model features)
     model_cols = [c for c in assembled.columns if c not in {"lat", "lon"}]
-    train_df[model_cols].to_json(splits_dir / "train.jsonl", orient="records", lines=True)
-    val_df[model_cols].to_json(splits_dir / "val.jsonl", orient="records", lines=True)
-    test_df[model_cols].to_json(splits_dir / "test.jsonl", orient="records", lines=True)
+    train_df[model_cols].to_json(
+        splits_dir / "train.jsonl", orient="records", lines=True)
+    val_df[model_cols].to_json(
+        splits_dir / "val.jsonl", orient="records", lines=True)
+    test_df[model_cols].to_json(
+        splits_dir / "test.jsonl", orient="records", lines=True)
 
     scorer_path = output_dir / "neighborhood_scorer.joblib"
     scorer.save(scorer_path)
 
-    verdict, notes = _build_readiness_verdict(gaps, len(assembled), getattr(args, "min_rows", 25))
+    verdict, notes = _build_readiness_verdict(
+        gaps, len(assembled), getattr(args, "min_rows", 25))
 
     report_dict = {
         "generated_at": datetime.now(UTC).isoformat(),
@@ -764,7 +785,8 @@ def _print_summary(report_path: Path) -> None:
     print("=" * 62)
     print(f"  Extracted rows:             {rc['extracted']}")
     print(f"  Assembled rows:             {rc['assembled']}")
-    print(f"  Train / Val / Test:         {rc['train']} / {rc['val']} / {rc['test']}")
+    print(
+        f"  Train / Val / Test:         {rc['train']} / {rc['val']} / {rc['test']}")
     print()
     if pt_dist:
         print("  PropertyType distribution:")
@@ -815,7 +837,8 @@ def main() -> None:
         epilog=__doc__,
     )
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
-    parser.add_argument("--output-dir", default="data/processed/training_pipeline")
+    parser.add_argument(
+        "--output-dir", default="data/processed/training_pipeline")
     parser.add_argument(
         "--reference-csv", default="",
         help="Reference CSV for distribution gap analysis (not mixed into training data).",
@@ -853,16 +876,20 @@ def main() -> None:
     if args.reference_csv:
         ref_path = Path(args.reference_csv)
         if not ref_path.exists():
-            print(f"WARNING: --reference-csv path not found: {ref_path}", file=sys.stderr)
+            print(
+                f"WARNING: --reference-csv path not found: {ref_path}", file=sys.stderr)
         else:
             try:
                 reference_df = pd.read_csv(ref_path)
-                print(f"[setup]  loaded reference CSV: {ref_path} ({len(reference_df)} rows)")
+                print(
+                    f"[setup]  loaded reference CSV: {ref_path} ({len(reference_df)} rows)")
             except Exception as exc:
-                print(f"WARNING: could not load reference CSV: {exc}", file=sys.stderr)
+                print(
+                    f"WARNING: could not load reference CSV: {exc}", file=sys.stderr)
 
     capabilities = _fetch_capabilities(args.base_url)
-    expected_features: list[str] = capabilities.get("model_expected_features", [])
+    expected_features: list[str] = capabilities.get(
+        "model_expected_features", [])
     if not expected_features:
         print(
             "WARNING: API returned no model_expected_features — "
@@ -871,14 +898,19 @@ def main() -> None:
         )
         expected_features = list(DEFAULT_PREDICTION_FEATURES)
 
-    print(f"[setup]  expected features ({len(expected_features)}): {expected_features}")
+    print(
+        f"[setup]  expected features ({len(expected_features)}): {expected_features}")
 
     # Ensure new features are included even when the deployed model predates this pipeline
-    for new_feat in ("PropertyType", "NeighborhoodScore", "CensusMedianValue",
-                     "MedianIncomeK", "OwnerOccupiedRate"):
+    for new_feat in (
+        "PropertyType", "NeighborhoodScore", "CensusMedianValue",
+        "MedianIncomeK", "OwnerOccupiedRate", "City", "ZipCode",
+        "State", "SchoolDistrictRating",
+    ):
         if new_feat not in expected_features:
             expected_features.append(new_feat)
-            print(f"[setup]  injected new feature into pipeline scope: {new_feat}")
+            print(
+                f"[setup]  injected new feature into pipeline scope: {new_feat}")
 
     print(
         "[setup]  NOTICE: label-source=predicted is circular. "
@@ -911,7 +943,8 @@ def main() -> None:
     # Build live features DataFrame for gap analysis
     live_feature_rows: list[dict[str, Any]] = []
     for item in enriched_candidates:
-        canonical, _ = _canonicalize_row(item.get("features", {}), expected_features)
+        canonical, _ = _canonicalize_row(
+            item.get("features", {}), expected_features)
         live_feature_rows.append(canonical)
     live_features_df = pd.DataFrame(live_feature_rows)
 
