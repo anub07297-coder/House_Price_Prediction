@@ -399,36 +399,45 @@ def render_lookup_slot(slot_index: int, api_base_url: str) -> dict | None:
         st.markdown(f"### {slot_label}")
 
         with st.form(f"address_lookup_form_{slot_index}"):
-            col1, col2 = st.columns(2)
-
+            # Row 1: Address Line 1 and Address Line 2
+            col1, col2 = st.columns([1, 1], gap="medium")
             with col1:
                 st.text_input(
                     "Address Line 1 *",
                     placeholder="123 Main Street",
                     key=lookup_state_key(slot_index, "line1"),
                 )
+            with col2:
+                st.text_input(
+                    "Address Line 2",
+                    placeholder="Apt 456",
+                    key=lookup_state_key(slot_index, "line2"),
+                )
+
+            # Row 2: City and Postal Code
+            col3, col4 = st.columns([1, 1], gap="medium")
+            with col3:
                 st.text_input(
                     "City *",
                     placeholder="Miami",
                     key=lookup_state_key(slot_index, "city"),
                 )
-                st.text_input(
-                    "State *",
-                    placeholder="FL",
-                    key=lookup_state_key(slot_index, "state"),
-                )
-
-            with col2:
-                st.text_input(
-                    "Address Line 2 (optional)",
-                    placeholder="Apt 456",
-                    key=lookup_state_key(slot_index, "line2"),
-                )
+            with col4:
                 st.text_input(
                     "Postal Code *",
                     placeholder="33101",
                     key=lookup_state_key(slot_index, "postal"),
                 )
+
+            # Row 3: State and Country
+            col5, col6 = st.columns([1, 1], gap="medium")
+            with col5:
+                st.text_input(
+                    "State *",
+                    placeholder="FL",
+                    key=lookup_state_key(slot_index, "state"),
+                )
+            with col6:
                 st.text_input(
                     "Country",
                     key=lookup_state_key(slot_index, "country"),
@@ -585,8 +594,12 @@ page = st.sidebar.radio(
 
 # ==================== PAGE: OVERVIEW ====================
 if page == "Overview":
-    st.title("🏠 Housing Price Prediction & Economic Indicators")
-    st.markdown("Explore the housing dataset with interactive visualizations")
+    st.markdown("""
+    <div style="text-align: center;">
+        <h1 style="color: #667eea; margin-bottom: 0.5rem;">🏠 Housing Price Prediction & Economic Indicators</h1>
+        <p style="color: #666; font-size: 1.1rem;">Explore the housing dataset with interactive visualizations</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     st.markdown("---")
     
@@ -610,29 +623,37 @@ if page == "Overview":
     # Price distribution
     st.subheader("📊 Price Distribution")
     
-    col1, col2 = st.columns(2)
+    fig = px.histogram(
+        df, 
+        x='price', 
+        nbins=50,
+        title='Price Distribution',
+        labels={'price': 'Price ($)'},
+        color_discrete_sequence=['#636EFA']
+    )
+    fig.update_layout(
+        height=450, 
+        margin=dict(l=40, r=40, t=80, b=40),
+        title_x=0.5,
+        title_xanchor='center',
+        title_font_size=18
+    )
+    st.plotly_chart(fig, use_container_width=True, config={'responsive': True})
     
-    with col1:
-        fig = px.histogram(
-            df, 
-            x='price', 
-            nbins=50,
-            title='Price Distribution',
-            labels={'price': 'Price ($)'},
-            color_discrete_sequence=['#636EFA']
-        )
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        fig = px.box(
-            df, 
-            y='price',
-            title='Price Box Plot',
-            color_discrete_sequence=['#636EFA']
-        )
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
+    fig = px.box(
+        df, 
+        y='price',
+        title='Price Box Plot',
+        color_discrete_sequence=['#636EFA']
+    )
+    fig.update_layout(
+        height=450, 
+        margin=dict(l=40, r=40, t=80, b=40),
+        title_x=0.5,
+        title_xanchor='center',
+        title_font_size=18
+    )
+    st.plotly_chart(fig, use_container_width=True, config={'responsive': True})
 
 # ==================== PAGE: DATA ANALYSIS ====================
 elif page == "Data Analysis":
