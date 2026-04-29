@@ -16,11 +16,156 @@ st.set_page_config(
 # Custom CSS for better styling
 st.markdown("""
     <style>
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 20px;
-        border-radius: 10px;
-        text-align: center;
+    /* Keyframe animations */
+    @keyframes slideInDown {
+        from {
+            opacity: 0;
+            transform: translateY(-30px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+    }
+    
+    @keyframes shimmer {
+        0% { background-position: -1000px 0; }
+        100% { background-position: 1000px 0; }
+    }
+    
+    /* Main page background */
+    .stMain {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        animation: fadeIn 0.8s ease-in;
+    }
+    
+    /* Sidebar background */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+        animation: slideInDown 0.6s ease-out;
+    }
+    
+    /* Sidebar text color */
+    [data-testid="stSidebar"] * {
+        color: white !important;
+    }
+    
+    /* Metric cards with shadow and gradient */
+    [data-testid="stMetric"] {
+        background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid #667eea;
+        transition: all 0.3s ease;
+        animation: slideInDown 0.5s ease-out backwards;
+    }
+    
+    [data-testid="stMetric"]:hover {
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 12px 30px rgba(102, 126, 234, 0.3);
+        animation: pulse 0.6s ease-in-out;
+    }
+    
+    /* Metric labels */
+    [data-testid="stMetricLabel"] {
+        font-size: 12px !important;
+        font-weight: 600;
+        color: #555;
+    }
+    
+    /* Metric values */
+    [data-testid="stMetricValue"] {
+        font-size: 18px !important;
+        font-weight: 700;
+        color: #667eea;
+        animation: slideInDown 0.6s ease-out;
+    }
+    
+    /* Section headings */
+    h1 {
+        color: #667eea !important;
+        font-weight: 800 !important;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.05);
+        animation: slideInDown 0.6s ease-out;
+    }
+    
+    h2 {
+        color: #764ba2 !important;
+        font-weight: 700 !important;
+        animation: slideInDown 0.6s ease-out;
+    }
+    
+    h3 {
+        margin: 0.5rem 0 !important;
+        font-size: 1.1rem !important;
+        color: #555 !important;
+        font-weight: 600;
+        animation: slideInDown 0.5s ease-out;
+    }
+    
+    h4 {
+        margin: 0.2rem 0 !important;
+        font-size: 0.95rem !important;
+        color: #667eea !important;
+    }
+    
+    /* Containers with nice borders */
+    [data-testid="stContainer"] {
+        border-radius: 12px;
+        animation: fadeIn 0.7s ease-in;
+    }
+    
+    /* Form inputs styling */
+    input, textarea, select {
+        border: 2px solid #e0e0e0 !important;
+        border-radius: 8px !important;
+        padding: 8px 12px !important;
+        font-size: 14px !important;
+        transition: all 0.3s ease;
+    }
+    
+    input:focus, textarea:focus {
+        border-color: #667eea !important;
+        box-shadow: 0 0 8px rgba(102, 126, 234, 0.3) !important;
+    }
+    
+    /* Buttons styling */
+    button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        padding: 10px 20px !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4) !important;
+    }
+    
+    /* Info/Success/Warning/Error boxes */
+    .stAlert {
+        border-radius: 8px !important;
+        border-left: 4px solid !important;
+    }
+    
+    /* Markdown text */
+    p {
+        color: #333 !important;
+        line-height: 1.6 !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -60,6 +205,363 @@ def call_api(method: str, base_url: str, path: str, payload: dict | None = None,
         return response.status_code, body, target_url
     except requests.RequestException as exc:
         return None, {"error": str(exc)}, target_url
+
+
+def calculate_market_metrics(dataset: pd.DataFrame) -> dict:
+    """Calculate 5 key metrics from the housing dataset."""
+    if dataset.empty:
+        return {}
+    
+    metrics = {}
+    
+    # 1. Neighborhood Stats
+    metrics["neighborhood_stats"] = {
+        "avg_price": dataset["price"].mean(),
+        "median_price": dataset["price"].median(),
+        "price_range": (dataset["price"].min(), dataset["price"].max()),
+        "total_properties": len(dataset),
+    }
+    
+    # 2. Property Characteristics
+    metrics["property_characteristics"] = {
+        "avg_lot_area": dataset["sqft_lot"].mean(),
+        "avg_grade": dataset["grade"].mean(),
+        "avg_condition": dataset["condition"].mean(),
+        "avg_living_area": dataset["sqft_living"].mean(),
+        "avg_bathrooms": dataset["bathrooms"].mean(),
+        "avg_bedrooms": dataset["bedrooms"].mean(),
+        "avg_floors": dataset["floors"].mean(),
+    }
+    
+    # 3. Market Data (Price per sqft)
+    dataset_copy = dataset.copy()
+    dataset_copy["price_per_sqft"] = dataset_copy["price"] / dataset_copy["sqft_living"]
+    dataset_copy = dataset_copy[dataset_copy["price_per_sqft"] > 0]
+    metrics["market_data"] = {
+        "avg_price_per_sqft": dataset_copy["price_per_sqft"].mean(),
+        "median_price_per_sqft": dataset_copy["price_per_sqft"].median(),
+    }
+    
+    # 4. Age Estimate (Average Year Built and Age)
+    metrics["age_estimate"] = {
+        "avg_year_built": dataset["yr_built"].mean(),
+        "avg_age": (2026 - dataset["yr_built"].mean()),
+        "oldest_year": dataset["yr_built"].min(),
+        "newest_year": dataset["yr_built"].max(),
+    }
+    
+    # 5. Tax Estimate (Approximate based on average price)
+    # Typical property tax rate ~1.2% of property value per year in US
+    tax_rate = 0.012
+    metrics["tax_estimate"] = {
+        "avg_annual_tax": (dataset["price"].mean() * tax_rate),
+        "annual_tax_rate": f"{tax_rate * 100:.1f}%",
+    }
+    
+    return metrics
+
+
+def lookup_state_key(slot_index: int, name: str) -> str:
+    return f"lookup_{slot_index}_{name}"
+
+
+def render_prediction_result(slot_index: int) -> None:
+    prediction = st.session_state.get(lookup_state_key(slot_index, "prediction"))
+    prediction_error = st.session_state.get(lookup_state_key(slot_index, "prediction_error"))
+
+    if prediction:
+        st.success("✅ Prediction Complete!")
+
+        res_col1, res_col2, res_col3 = st.columns(3)
+
+        with res_col1:
+            price = prediction.get("predicted_price")
+            if price is not None:
+                st.metric("Predicted Price", f"${price:,.0f}")
+
+        with res_col2:
+            completeness = prediction.get("feature_snapshot", {}).get("completeness_score")
+            if completeness is not None:
+                st.metric("Data Completeness", f"{completeness:.1%}")
+
+        with res_col3:
+            request_id = str(prediction.get("request_id", "N/A"))
+            st.metric("Request ID", request_id[:8] + "..." if len(request_id) > 8 else request_id)
+
+        key_features = prediction.get("feature_snapshot", {}).get("features", {})
+        if key_features:
+            st.markdown("**Key Property Features:**")
+            feat_cols = st.columns(min(len(key_features), 4))
+            for idx, (feat_name, feat_val) in enumerate(list(key_features.items())[:4]):
+                with feat_cols[idx % 4]:
+                    st.metric(feat_name, feat_val)
+    elif prediction_error:
+        st.error(prediction_error["message"])
+        detail = prediction_error.get("detail")
+        if detail:
+            if isinstance(detail, str):
+                st.error(f"Error: {detail}")
+            else:
+                st.json(detail)
+
+
+def render_market_metrics(metrics: dict) -> None:
+    """Display the 5 calculated market metrics."""
+    if not metrics:
+        return
+    
+    st.markdown("---")
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 25px; border-radius: 12px; margin-bottom: 25px; text-align: center; animation: slideInDown 0.7s ease-out; box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);">
+        <h2 style="color: white; margin: 0; font-size: 2.2em; text-align: center; letter-spacing: 0.5px; animation: slideInDown 0.8s ease-out;">🏠 House Price Prediction with Socioeconomic Indicators</h2>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 1. Neighborhood Stats
+    if "neighborhood_stats" in metrics:
+        st.markdown("**Neighborhood Statistics**")
+        ns = metrics["neighborhood_stats"]
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.metric("Avg Price", f"${ns['avg_price']:,.0f}")
+        with col2:
+            st.metric("Median Price", f"${ns['median_price']:,.0f}")
+        with col3:
+            st.metric("Min Price", f"${ns['price_range'][0]:,.0f}")
+        with col4:
+            st.metric("Max Price", f"${ns['price_range'][1]:,.0f}")
+        with col5:
+            st.metric("# Properties", f"{ns['total_properties']}")
+    
+    # 2. Property Characteristics
+    if "property_characteristics" in metrics:
+        st.markdown("**Average Property Characteristics**")
+        pc = metrics["property_characteristics"]
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Lot Area (sqft)", f"{pc['avg_lot_area']:,.0f}")
+            st.metric("Grade (1-13)", f"{pc['avg_grade']:.1f}")
+            st.metric("Living Area (sqft)", f"{pc['avg_living_area']:,.0f}")
+        with col2:
+            st.metric("Condition (1-5)", f"{pc['avg_condition']:.1f}")
+            st.metric("Bathrooms", f"{pc['avg_bathrooms']:.1f}")
+            st.metric("Bedrooms", f"{pc['avg_bedrooms']:.1f}")
+        with col3:
+            st.metric("Floors", f"{pc['avg_floors']:.1f}")
+    
+    # 3. Market Data
+    if "market_data" in metrics:
+        st.markdown("**Market Data**")
+        md = metrics["market_data"]
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Avg Price/sqft", f"${md['avg_price_per_sqft']:.2f}")
+        with col2:
+            st.metric("Median Price/sqft", f"${md['median_price_per_sqft']:.2f}")
+    
+    # 4. Age Estimate
+    if "age_estimate" in metrics:
+        st.markdown("**Property Age**")
+        ae = metrics["age_estimate"]
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Avg Year Built", f"{ae['avg_year_built']:.0f}")
+        with col2:
+            st.metric("Avg Age", f"{ae['avg_age']:.1f} years")
+        with col3:
+            st.metric("Age Range", f"{ae['oldest_year']:.0f} - {ae['newest_year']:.0f}")
+    
+    # 5. Tax Estimate
+    if "tax_estimate" in metrics:
+        st.markdown("**Tax Estimate**")
+        te = metrics["tax_estimate"]
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Avg Annual Tax", f"${te['avg_annual_tax']:,.0f}")
+        with col2:
+            st.metric("Tax Rate", te['annual_tax_rate'])
+
+
+def render_lookup_slot(slot_index: int, api_base_url: str) -> dict | None:
+    normalized_key = lookup_state_key(slot_index, "normalized")
+    prediction_key = lookup_state_key(slot_index, "prediction")
+    prediction_error_key = lookup_state_key(slot_index, "prediction_error")
+
+    if normalized_key not in st.session_state:
+        st.session_state[normalized_key] = None
+    if prediction_key not in st.session_state:
+        st.session_state[prediction_key] = None
+    if prediction_error_key not in st.session_state:
+        st.session_state[prediction_error_key] = None
+
+    slot_label = f"Search Address {slot_index + 1}"
+    with st.container(border=True):
+        st.markdown(f"### {slot_label}")
+
+        with st.form(f"address_lookup_form_{slot_index}"):
+            # Row 1: Address Line 1 and Address Line 2
+            col1, col2 = st.columns([1, 1], gap="medium")
+            with col1:
+                st.text_input(
+                    "Address Line 1 *",
+                    placeholder="123 Main Street",
+                    key=lookup_state_key(slot_index, "line1"),
+                )
+            with col2:
+                st.text_input(
+                    "Address Line 2",
+                    placeholder="Apt 456",
+                    key=lookup_state_key(slot_index, "line2"),
+                )
+
+            # Row 2: City and Postal Code
+            col3, col4 = st.columns([1, 1], gap="medium")
+            with col3:
+                st.text_input(
+                    "City *",
+                    placeholder="Miami",
+                    key=lookup_state_key(slot_index, "city"),
+                )
+            with col4:
+                st.text_input(
+                    "Postal Code *",
+                    placeholder="33101",
+                    key=lookup_state_key(slot_index, "postal"),
+                )
+
+            # Row 3: State and Country
+            col5, col6 = st.columns([1, 1], gap="medium")
+            with col5:
+                st.text_input(
+                    "State *",
+                    placeholder="FL",
+                    key=lookup_state_key(slot_index, "state"),
+                )
+            with col6:
+                st.text_input(
+                    "Country",
+                    key=lookup_state_key(slot_index, "country"),
+                    value=st.session_state.get(lookup_state_key(slot_index, "country"), "US"),
+                )
+
+            search_submitted = st.form_submit_button("🔍 Search Address", use_container_width=True)
+
+        if search_submitted:
+            lookup_line1 = st.session_state.get(lookup_state_key(slot_index, "line1"), "")
+            lookup_city = st.session_state.get(lookup_state_key(slot_index, "city"), "")
+            lookup_state = st.session_state.get(lookup_state_key(slot_index, "state"), "")
+            lookup_line2 = st.session_state.get(lookup_state_key(slot_index, "line2"), "")
+            lookup_postal = st.session_state.get(lookup_state_key(slot_index, "postal"), "")
+            lookup_country = st.session_state.get(lookup_state_key(slot_index, "country"), "US")
+
+            if not lookup_line1.strip() or not lookup_city.strip() or not lookup_state.strip() or not lookup_postal.strip():
+                st.error("❌ Please fill in all required fields (marked with *).")
+            else:
+                lookup_payload = {
+                    "address_line_1": lookup_line1.strip(),
+                    "city": lookup_city.strip(),
+                    "state": lookup_state.strip(),
+                    "postal_code": lookup_postal.strip(),
+                    "country": lookup_country.strip(),
+                }
+                if lookup_line2.strip():
+                    lookup_payload["address_line_2"] = lookup_line2.strip()
+
+                with st.spinner(f"🌍 Looking up address for {slot_label.lower()}..."):
+                    sc, body, _url = call_api("POST", api_base_url, "/v1/properties/normalize", payload=lookup_payload)
+
+                if sc == 200 and isinstance(body, dict):
+                    st.session_state[normalized_key] = body
+                    st.session_state[prediction_key] = None
+                    st.session_state[prediction_error_key] = None
+                    st.success("✅ Address found!")
+                else:
+                    st.session_state[normalized_key] = None
+                    st.error(f"❌ Address lookup failed (Status {sc})")
+                    st.json(body)
+
+        normalized = st.session_state.get(normalized_key)
+        if not normalized:
+            st.info("Enter an address above and click Search Address.")
+            return None
+
+        col_addr, col_coords = st.columns([2, 1])
+
+        with col_addr:
+            st.subheader("📬 Normalized Address")
+            addr_display = f"{normalized.get('address_line_1', '')}"
+            if normalized.get("address_line_2"):
+                addr_display += f", {normalized.get('address_line_2')}"
+            addr_display += (
+                f"\n{normalized.get('city', '')}, {normalized.get('state', '')} "
+                f"{normalized.get('postal_code', '')}"
+            )
+            if normalized.get("country"):
+                addr_display += f"\n{normalized.get('country', '')}"
+            st.info(addr_display)
+
+            if normalized.get("formatted_address"):
+                st.caption(f"Formatted: {normalized['formatted_address']}")
+
+        with col_coords:
+            latitude = normalized.get("latitude")
+            longitude = normalized.get("longitude")
+            if latitude is not None and longitude is not None:
+                st.metric("Latitude", f"{latitude:.4f}")
+                st.metric("Longitude", f"{longitude:.4f}")
+                if normalized.get("geocoding_source"):
+                    st.caption(f"📡 Source: {normalized['geocoding_source']}")
+
+        # Display market metrics
+        metrics = calculate_market_metrics(df)
+        render_market_metrics(metrics)
+
+        st.markdown("---")
+        st.subheader("💰 Predict Price")
+        st.write("Use this address to get an instant price prediction.")
+
+        st.text_input(
+            "Your Email (optional)",
+            placeholder="you@example.com",
+            key=lookup_state_key(slot_index, "requested_by"),
+        )
+
+        if st.button("🔮 Predict House Price", use_container_width=True, key=lookup_state_key(slot_index, "predict")):
+            pred_payload = {
+                "address_line_1": normalized.get("address_line_1"),
+                "city": normalized.get("city"),
+                "state": normalized.get("state"),
+                "postal_code": normalized.get("postal_code"),
+                "country": normalized.get("country"),
+            }
+            if normalized.get("address_line_2"):
+                pred_payload["address_line_2"] = normalized.get("address_line_2")
+
+            requested_by = st.session_state.get(lookup_state_key(slot_index, "requested_by"), "")
+            if requested_by.strip():
+                pred_payload["requested_by"] = requested_by.strip()
+
+            with st.spinner(f"🧠 Analyzing property for {slot_label.lower()}..."):
+                pred_sc, pred_body, _pred_url = call_api(
+                    "POST",
+                    api_base_url,
+                    "/v1/predictions",
+                    payload=pred_payload,
+                )
+
+            if pred_sc == 201 and isinstance(pred_body, dict):
+                st.session_state[prediction_key] = pred_body
+                st.session_state[prediction_error_key] = None
+                st.session_state["last_prediction_id"] = str(pred_body.get("prediction_id", ""))
+            else:
+                st.session_state[prediction_key] = None
+                st.session_state[prediction_error_key] = {
+                    "message": f"❌ Prediction failed (Status {pred_sc})",
+                    "detail": pred_body.get("detail") if isinstance(pred_body, dict) else pred_body,
+                }
+
+        render_prediction_result(slot_index)
+        return normalized
 
 # Sidebar
 st.sidebar.title("🏠 Housing Dashboard")
@@ -129,8 +631,12 @@ page = st.sidebar.radio(
 
 # ==================== PAGE: OVERVIEW ====================
 if page == "Overview":
-    st.title("🏠 Housing Price Prediction Dashboard")
-    st.markdown("Explore the housing dataset with interactive visualizations")
+    st.markdown("""
+    <div style="text-align: center;">
+        <h1 style="color: #667eea; margin-bottom: 0.5rem;">🏠 Housing Price Prediction & Economic Indicators</h1>
+        <p style="color: #666; font-size: 1.1rem;">Explore the housing dataset with interactive visualizations</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     st.markdown("---")
     
@@ -154,29 +660,37 @@ if page == "Overview":
     # Price distribution
     st.subheader("📊 Price Distribution")
     
-    col1, col2 = st.columns(2)
+    fig = px.histogram(
+        df, 
+        x='price', 
+        nbins=50,
+        title='Price Distribution',
+        labels={'price': 'Price ($)'},
+        color_discrete_sequence=['#636EFA']
+    )
+    fig.update_layout(
+        height=450, 
+        margin=dict(l=40, r=40, t=80, b=40),
+        title_x=0.5,
+        title_xanchor='center',
+        title_font_size=18
+    )
+    st.plotly_chart(fig, use_container_width=True, config={'responsive': True})
     
-    with col1:
-        fig = px.histogram(
-            df, 
-            x='price', 
-            nbins=50,
-            title='Price Distribution',
-            labels={'price': 'Price ($)'},
-            color_discrete_sequence=['#636EFA']
-        )
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        fig = px.box(
-            df, 
-            y='price',
-            title='Price Box Plot',
-            color_discrete_sequence=['#636EFA']
-        )
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
+    fig = px.box(
+        df, 
+        y='price',
+        title='Price Box Plot',
+        color_discrete_sequence=['#636EFA']
+    )
+    fig.update_layout(
+        height=450, 
+        margin=dict(l=40, r=40, t=80, b=40),
+        title_x=0.5,
+        title_xanchor='center',
+        title_font_size=18
+    )
+    st.plotly_chart(fig, use_container_width=True, config={'responsive': True})
 
 # ==================== PAGE: DATA ANALYSIS ====================
 elif page == "Data Analysis":
@@ -423,6 +937,43 @@ elif page == "Statistics":
 elif page == "Address Lookup":
     st.title("🔍 Address Lookup & Price Comparison")
     st.markdown(
+        "Search for multiple property addresses side by side, compare their normalized "
+        "results, and run instant price predictions."
+    )
+
+    slot_count = st.select_slider(
+        "Search Address boxes",
+        options=[2, 3, 4],
+        value=3,
+        help="Choose how many address lookup panels to show at once.",
+    )
+
+    st.caption("Each panel keeps its own search result and prediction so you can compare addresses side by side.")
+    st.markdown("---")
+
+    lookup_results: list[dict] = []
+    columns = st.columns(slot_count)
+    for slot_index, column in enumerate(columns):
+        with column:
+            normalized = render_lookup_slot(slot_index, api_base_url)
+            if normalized:
+                lookup_results.append(normalized)
+
+    mappable_results = [
+        {
+            "lat": result["latitude"],
+            "lon": result["longitude"],
+            "label": result.get("formatted_address") or result.get("address_line_1", "Address"),
+        }
+        for result in lookup_results
+        if result.get("latitude") is not None and result.get("longitude") is not None
+    ]
+
+    if mappable_results:
+        st.markdown("---")
+        st.subheader("🗺️ Comparison Map")
+        st.caption("Plotted addresses from all visible lookup panels.")
+        st.map(pd.DataFrame(mappable_results), latitude="lat", longitude="lon", size=12)
         "Search for multiple property addresses, view their locations on the map, "
         "and compare price predictions side by side."
     )
