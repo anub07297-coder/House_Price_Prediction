@@ -586,6 +586,43 @@ elif "localhost" in api_base_url or "127.0.0.1" in api_base_url:
 else:
     st.sidebar.info(f"📡 Custom API: {api_base_url}")
 
+if st.sidebar.button("Check API Runtime", use_container_width=True):
+    sc, body, url = call_api("GET", api_base_url, "/v1/health")
+    st.session_state["api_runtime_health"] = {
+        "status_code": sc,
+        "body": body,
+        "url": url,
+    }
+
+runtime_health = st.session_state.get("api_runtime_health")
+if runtime_health is not None:
+    status_code = runtime_health.get("status_code")
+    health_body = runtime_health.get("body")
+    if status_code == 200 and isinstance(health_body, dict):
+        st.sidebar.success("API reachable")
+        st.sidebar.caption(
+            f"Providers: {health_body.get('geocoding_provider', 'unknown')} / "
+            f"{health_body.get('property_data_provider', 'unknown')}"
+        )
+        st.sidebar.caption(
+            f"Mock predictor: {health_body.get('mock_predictor_enabled', 'unknown')}"
+        )
+        geocoding_provider = str(health_body.get("geocoding_provider", "")).strip().lower()
+        property_provider = str(health_body.get("property_data_provider", "")).strip().lower()
+        mock_enabled = bool(health_body.get("mock_predictor_enabled", False))
+
+        if mock_enabled:
+            st.sidebar.warning(
+                "Predictions are currently using mock mode. Set ENABLE_MOCK_PREDICTOR=false "
+                "for live ML model inference."
+            )
+        if geocoding_provider == "fake" or property_provider == "fake":
+            st.sidebar.warning(
+                "At least one provider is fake. Use free-fallback providers for live address enrichment."
+            )
+    else:
+        st.sidebar.error(f"Health check failed ({status_code}): {health_body}")
+
 # Page selection
 page = st.sidebar.radio(
     "Select a page:",
@@ -898,7 +935,7 @@ elif page == "Statistics":
 
 # ==================== PAGE: ADDRESS LOOKUP ====================
 elif page == "Address Lookup":
-    st.title("🔍 Address Lookup & Price Prediction")
+    st.title("🔍 Address Lookup & Price Comparison")
     st.markdown(
         "Search for multiple property addresses side by side, compare their normalized "
         "results, and run instant price predictions."
@@ -937,8 +974,268 @@ elif page == "Address Lookup":
         st.subheader("🗺️ Comparison Map")
         st.caption("Plotted addresses from all visible lookup panels.")
         st.map(pd.DataFrame(mappable_results), latitude="lat", longitude="lon", size=12)
+        "Search for multiple property addresses, view their locations on the map, "
+        "and compare price predictions side by side."
+    )
+    
+    st.markdown("---")
+    
+    # Initialize session state for lookup
+    if "lookup_predictions" not in st.session_state:
+        st.session_state["lookup_predictions"] = []
+    if "lookup_normalized" not in st.session_state:
+        st.session_state["lookup_normalized"] = None
+    
+    # Initialize address slots (up to 3 side-by-side)
+    num_slots = 3
+    
+    st.subheader("📍 Enter Property Addresses (Side-by-Side)")
+    st.write("Fill in one or more addresses and search them individually")
+    
+    # Create columns for address forms
+    form_cols = st.columns(num_slots)
+    
+    # Process each address slot
+    for slot_idx in range(num_slots):
+        with form_cols[slot_idx]:
+            st.markdown(f"### Property {slot_idx + 1}")
+            
+            # Use unique keys for each form
+            line1_key = f"lookup_line1_{slot_idx}"
+            city_key = f"lookup_city_{slot_idx}"
+            state_key = f"lookup_state_{slot_idx}"
+            line2_key = f"lookup_line2_{slot_idx}"
+            postal_key = f"lookup_postal_{slot_idx}"
+            country_key = f"lookup_country_{slot_idx}"
+            
+            # Input fields
+            line1 = st.text_input(
+                f"Address Line 1 *",
+                placeholder="123 Main Street",
+                value=st.session_state.get(line1_key, ""),
+                key=f"input_{line1_key}"
+            )
+            
+            city = st.text_input(
+                f"City *",
+                placeholder="Miami",
+                value=st.session_state.get(city_key, ""),
+                key=f"input_{city_key}"
+            )
+            
+            state = st.text_input(
+                f"State *",
+                placeholder="FL",
+                value=st.session_state.get(state_key, ""),
+                key=f"input_{state_key}"
+            )
+            
+            line2 = st.text_input(
+                f"Address Line 2",
+                placeholder="Apt 456",
+                value=st.session_state.get(line2_key, ""),
+                key=f"input_{line2_key}"
+            )
+            
+            postal = st.text_input(
+                f"Postal Code *",
+                placeholder="33101",
+                value=st.session_state.get(postal_key, ""),
+                key=f"input_{postal_key}"
+            )
+            
+            country = st.text_input(
+                f"Country",
+                value=st.session_state.get(country_key, "US"),
+                key=f"input_{country_key}"
+            )
+            
+            # Search button for this slot
+            if st.button(f"🔍 Search Property {slot_idx + 1}", use_container_width=True, key=f"search_btn_{slot_idx}"):
+                # Save inputs
+                st.session_state[line1_key] = line1
+                st.session_state[city_key] = city
+                st.session_state[state_key] = state
+                st.session_state[line2_key] = line2
+                st.session_state[postal_key] = postal
+                st.session_state[country_key] = country
+                
+                # Validate
+                if not line1.strip() or not city.strip() or not state.strip() or not postal.strip():
+                    st.error("❌ Fill all required fields (*)")
+                else:
+                    # Build payload
+                    lookup_payload = {
+                        "address_line_1": line1.strip(),
+                        "city": city.strip(),
+                        "state": state.strip(),
+                        "postal_code": postal.strip(),
+                        "country": country.strip(),
+                    }
+                    if line2.strip():
+                        lookup_payload["address_line_2"] = line2.strip()
+                    
+                    with st.spinner("🌍 Looking up address..."):
+                        sc, body, url = call_api("POST", api_base_url, "/v1/properties/normalize", payload=lookup_payload)
+                    
+                    if sc == 200 and isinstance(body, dict):
+                        # Store in predictions with auto-prediction
+                        pred_payload = dict(lookup_payload)
+                        with st.spinner("🧠 Predicting price..."):
+                            pred_sc, pred_body, _ = call_api("POST", api_base_url, "/v1/predictions", payload=pred_payload)
+                        
+                        if pred_sc == 201 and isinstance(pred_body, dict):
+                            prediction_entry = {
+                                "address": f"{line1}, {city}, {state}",
+                                "formatted_address": body.get('formatted_address', ''),
+                                "latitude": body.get('latitude'),
+                                "longitude": body.get('longitude'),
+                                "predicted_price": pred_body.get('predicted_price'),
+                                "completeness_score": pred_body.get('completeness_score'),
+                                "features": pred_body.get('feature_snapshot', {}).get('features', {}),
+                                "prediction_id": pred_body.get('prediction_id'),
+                            }
+                            st.session_state["lookup_predictions"].append(prediction_entry)
+                            st.success(f"✅ Property {slot_idx + 1} added!")
+                            st.balloons()
+                        else:
+                            st.error(f"❌ Prediction failed")
+                    else:
+                        st.error(f"❌ Address lookup failed")
+    
+    st.markdown("---")
+    
+    # Display results
+    normalized = st.session_state.get("lookup_normalized")
+    
+    st.markdown("---")
+    
+    # ========== COMPARISON SECTION ==========
+    predictions = st.session_state.get("lookup_predictions", [])
+    
+    if predictions:
+        st.subheader(f"📊 Comparison ({len(predictions)} properties)")
+        
+        # Comparison table
+        comparison_data = []
+        for idx, pred in enumerate(predictions):
+            comparison_data.append({
+                "Property": pred.get("address", "Unknown"),
+                "Predicted Price": f"${pred.get('predicted_price', 0):,.0f}",
+                "Completeness": f"{pred.get('completeness_score', 0):.1%}",
+            })
+        
+        comparison_df = pd.DataFrame(comparison_data)
+        st.dataframe(comparison_df, use_container_width=True)
+        
+        # Price comparison chart
+        if len(predictions) > 1:
+            st.markdown("###")
+            st.subheader("💵 Price Comparison Chart")
+            
+            chart_data = pd.DataFrame([
+                {
+                    "Address": p.get("address", "Unknown").split(",")[0],  # Just street
+                    "Price": p.get("predicted_price", 0)
+                }
+                for p in predictions
+            ])
+            
+            fig = px.batestsr(
+                chart_data,
+                x="Address",
+                y="Price",
+                title="Predicted Prices Comparison",
+                labels={"Price": "Price ($)", "Address": "Property"},
+                color="Price",
+                color_continuous_scale="Viridis"
+            )
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Statistics
+            col1, col2, col3, col4 = st.columns(4)
+            prices = [p.get("predicted_price", 0) for p in predictions]
+            
+            with col1:
+                st.metric("Highest Price", f"${max(prices):,.0f}")
+            with col2:
+                st.metric("Lowest Price", f"${min(prices):,.0f}")
+            with col3:
+                st.metric("Average Price", f"${sum(prices)/len(prices):,.0f}")
+            with col4:
+                st.metric("Price Range", f"${max(prices) - min(prices):,.0f}")
+        
+        # Map with all properties
+        if any(p.get('latitude') and p.get('longitude') for p in predictions):
+            st.markdown("###")
+            st.subheader("🗺️ All Properties Map")
+            
+            try:
+                import folium
+                from streamlit_folium import st_folium
+                
+                # Calculate center of all properties
+                lats = [p['latitude'] for p in predictions if p.get('latitude')]
+                lons = [p['longitude'] for p in predictions if p.get('longitude')]
+                
+                if lats and lons:
+                    center_lat = sum(lats) / len(lats)
+                    center_lon = sum(lons) / len(lons)
+                    
+                    m = folium.Map(
+                        location=[center_lat, center_lon],
+                        zoom_start=12,
+                        tiles="OpenStreetMap"
+                    )
+                    
+                    # Color map for markers
+                    colors = ["red", "blue", "green", "purple", "orange", "darkred", "darkblue", "darkgreen"]
+                    
+                    # Add markers for each property
+                    for idx, pred in enumerate(predictions):
+                        if pred.get('latitude') and pred.get('longitude'):
+                            color = colors[idx % len(colors)]
+                            price = pred.get('predicted_price', 0)
+                            
+                            folium.Marker(
+                                location=[pred['latitude'], pred['longitude']],
+                                popup=f"{pred.get('address', 'Unknown')}<br>${price:,.0f}",
+                                tooltip=f"${price:,.0f}",
+                                icon=folium.Icon(color=color, icon="home", prefix="fa")
+                            ).add_to(m)
+                    
+                    st_folium(m, width=700, height=500)
+            except Exception as e:
+                st.warning(f"⚠️ Could not display map: {str(e)}")
+        
+        # Remove individual predictions
+        st.markdown("###")
+        st.subheader("🗑️ Manage Comparison")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Clear All", use_container_width=True):
+                st.session_state["lookup_predictions"] = []
+                st.rerun()
+        
+        with col2:
+            selected_to_remove = st.selectbox(
+                "Remove a property:",
+                options=[f"{i+1}. {p['address'].split(',')[0]}" for i, p in enumerate(predictions)],
+                key="remove_select"
+            )
+            if st.button("❌ Remove Selected", use_container_width=True):
+                remove_idx = int(selected_to_remove.split(".")[0]) - 1
+                predictions.pop(remove_idx)
+                st.session_state["lookup_predictions"] = predictions
+                st.rerun()
+    else:
+        if st.session_state.get("lookup_normalized"):
+            st.info("💡 Predict an address price using the button above to start comparing properties!")
 
-# ==================== PAGE: LIVE API TESTER ====================
+
 elif page == "Live API Tester":
     st.title("🧪 Live API Tester")
     st.markdown(
@@ -978,7 +1275,113 @@ elif page == "Live API Tester":
     st.markdown("---")
 
     # ------------------------------------------------------------------ #
-    # SECTION 2 — Automated Scenario Pipeline Runner                     #
+    # SECTION 2 — Live Validation Runner                                #
+    # ------------------------------------------------------------------ #
+    st.subheader("Live Validation Runner")
+    st.caption(
+        "One-click real-address flow: health → normalize → baseline → prediction → detail. "
+        "This path is gated by API live readiness by default."
+    )
+
+    with st.form("live_validation_form"):
+        lv_col1, lv_col2 = st.columns(2)
+        with lv_col1:
+            lv_line1 = st.text_input("Address Line 1", value="1600 Pennsylvania Ave NW", key="lv_line1")
+            lv_city = st.text_input("City", value="Washington", key="lv_city")
+            lv_state = st.text_input("State", value="DC", key="lv_state")
+        with lv_col2:
+            lv_line2 = st.text_input("Address Line 2 (optional)", value="", key="lv_line2")
+            lv_postal = st.text_input("Postal Code", value="20500", key="lv_postal")
+            lv_country = st.text_input("Country", value="US", key="lv_country")
+
+        lv_requested_by = st.text_input("Requested By", value="live-ui@local", key="lv_requested_by")
+        allow_not_ready = st.checkbox(
+            "Allow run even when API is not live-ready",
+            value=False,
+            key="lv_allow_not_ready",
+            help="Keep off for strict live-mode validation.",
+        )
+        lv_submit = st.form_submit_button("Run Live Validation", use_container_width=True)
+
+    if lv_submit:
+        live_payload: dict = {
+            "address_line_1": lv_line1,
+            "city": lv_city,
+            "state": lv_state,
+            "postal_code": lv_postal,
+            "country": lv_country,
+        }
+        if lv_line2.strip():
+            live_payload["address_line_2"] = lv_line2.strip()
+
+        with st.spinner("Running live validation workflow…"):
+            health_sc, health_body, health_url = call_api("GET", api_base_url, "/v1/health")
+
+            if health_sc != 200 or not isinstance(health_body, dict):
+                render_response("Live Validation • Health", health_sc, health_body, health_url)
+            else:
+                render_response("Live Validation • Health", health_sc, health_body, health_url)
+                live_mode_ready = bool(health_body.get("live_mode_ready", False))
+                live_mode_issues = health_body.get("live_mode_issues", [])
+                if (not live_mode_ready) and (not allow_not_ready):
+                    st.error(
+                        "API is not live-ready. Resolve runtime issues first or enable override to continue."
+                    )
+                    if isinstance(live_mode_issues, list) and live_mode_issues:
+                        st.warning("\n".join(f"- {issue}" for issue in live_mode_issues))
+                else:
+                    norm_sc, norm_body, norm_url = call_api(
+                        "POST",
+                        api_base_url,
+                        "/v1/properties/normalize",
+                        payload=live_payload,
+                    )
+                    render_response("Live Validation • Normalize", norm_sc, norm_body, norm_url)
+
+                    baseline_sc, baseline_body, baseline_url = call_api(
+                        "POST",
+                        api_base_url,
+                        "/v1/validation/address-baseline",
+                        payload=live_payload,
+                    )
+                    render_response("Live Validation • Baseline", baseline_sc, baseline_body, baseline_url)
+
+                    prediction_payload = dict(live_payload)
+                    if lv_requested_by.strip():
+                        prediction_payload["requested_by"] = lv_requested_by.strip()
+
+                    pred_sc, pred_body, pred_url = call_api(
+                        "POST",
+                        api_base_url,
+                        "/v1/predictions",
+                        payload=prediction_payload,
+                    )
+                    render_response("Live Validation • Create Prediction", pred_sc, pred_body, pred_url)
+
+                    prediction_id = pred_body.get("prediction_id") if isinstance(pred_body, dict) else None
+                    if prediction_id:
+                        st.session_state["last_prediction_id"] = prediction_id
+                        detail_sc, detail_body, detail_url = call_api(
+                            "GET",
+                            api_base_url,
+                            f"/v1/predictions/{prediction_id}",
+                        )
+                        render_response("Live Validation • Prediction Detail", detail_sc, detail_body, detail_url)
+
+                        if detail_sc == 200 and isinstance(detail_body, dict):
+                            provider_responses = detail_body.get("provider_responses", [])
+                            if provider_responses:
+                                latest_provider = provider_responses[-1]
+                                st.info(
+                                    "Latest provider response: "
+                                    f"{latest_provider.get('provider_name', 'unknown')} "
+                                    f"(feature_source={latest_provider.get('feature_source', 'unknown')})"
+                                )
+
+    st.markdown("---")
+
+    # ------------------------------------------------------------------ #
+    # SECTION 3 — Automated Scenario Pipeline Runner                     #
     # ------------------------------------------------------------------ #
     st.subheader("Automated Scenario Pipeline Runner")
     st.write(
@@ -1114,7 +1517,7 @@ elif page == "Live API Tester":
     st.markdown("---")
 
     # ------------------------------------------------------------------ #
-    # SECTION 3 — Ad-Hoc Address Testing                                 #
+    # SECTION 4 — Ad-Hoc Address Testing                                 #
     # ------------------------------------------------------------------ #
     with st.expander("Ad-Hoc Address & Prediction Testing", expanded=False):
         st.caption(
@@ -1234,60 +1637,72 @@ elif page == "Live API Tester":
     st.markdown("---")
 
     # ------------------------------------------------------------------ #
-    # SECTION 4 — Policy Simulation                                      #
+    # SECTION 5 — Policy Simulation                                      #
     # ------------------------------------------------------------------ #
     st.subheader("Policy Simulation")
-    st.caption("Simulate multiple feature policies against an address to compare predicted prices.")
+    st.caption("Training-only utility for policy experiments; not part of live production prediction flow.")
 
-    with st.form("policy_sim_form"):
-        sim_col1, sim_col2 = st.columns(2)
-        with sim_col1:
-            sim_line1 = st.text_input("Address Line 1", value="413 Duff Ave", key="sim_line1")
-            sim_city = st.text_input("City", value="Ames", key="sim_city")
-            sim_state = st.text_input("State", value="IA", key="sim_state")
-        with sim_col2:
-            sim_postal = st.text_input("Postal Code", value="50010", key="sim_postal")
-            sim_country = st.text_input("Country", value="US", key="sim_country")
-            sim_policies_csv = st.text_input(
-                "Policy Names (comma-separated)",
-                value="balanced-v1,quality-first-v1",
-                key="sim_policies",
-            )
-        sim_submitted = st.form_submit_button("Simulate Policies")
+    enable_training_sim = st.checkbox(
+        "Enable training simulations",
+        value=False,
+        help="Keep this off during live-address validation; enable only when exploring policy behavior.",
+    )
 
-    if sim_submitted:
-        sim_payload: dict = {
-            "address_line_1": sim_line1,
-            "city": sim_city,
-            "state": sim_state,
-            "postal_code": sim_postal,
-            "country": sim_country,
-        }
-        policy_names = [p.strip() for p in sim_policies_csv.split(",") if p.strip()]
-        if policy_names:
-            sim_payload["policy_names"] = policy_names
-        sc, body, url = call_api("POST", api_base_url, "/v1/policies/feature/simulate", payload=sim_payload)
-        render_response("Policy Simulation Response", sc, body, url)
-        if sc == 200 and isinstance(body, dict):
-            sims = body.get("simulations", [])
-            if sims:
-                st.dataframe(
-                    pd.DataFrame([
-                        {
-                            "Policy": s["policy_name"],
-                            "Version": s["policy_version"],
-                            "Price ($)": f"${s['predicted_price']:,.0f}",
-                            "Completeness": f"{s['completeness_score']:.1%}",
-                        }
-                        for s in sims
-                    ]),
-                    use_container_width=True,
+    if not enable_training_sim:
+        st.info(
+            "Simulation tools are disabled by default. "
+            "Use Normalize/Create Prediction/Full Audit above for live-address validation."
+        )
+    else:
+        with st.form("policy_sim_form"):
+            sim_col1, sim_col2 = st.columns(2)
+            with sim_col1:
+                sim_line1 = st.text_input("Address Line 1", value="413 Duff Ave", key="sim_line1")
+                sim_city = st.text_input("City", value="Ames", key="sim_city")
+                sim_state = st.text_input("State", value="IA", key="sim_state")
+            with sim_col2:
+                sim_postal = st.text_input("Postal Code", value="50010", key="sim_postal")
+                sim_country = st.text_input("Country", value="US", key="sim_country")
+                sim_policies_csv = st.text_input(
+                    "Policy Names (comma-separated)",
+                    value="balanced-v1,quality-first-v1",
+                    key="sim_policies",
                 )
+            sim_submitted = st.form_submit_button("Simulate Policies")
+
+        if sim_submitted:
+            sim_payload: dict = {
+                "address_line_1": sim_line1,
+                "city": sim_city,
+                "state": sim_state,
+                "postal_code": sim_postal,
+                "country": sim_country,
+            }
+            policy_names = [p.strip() for p in sim_policies_csv.split(",") if p.strip()]
+            if policy_names:
+                sim_payload["policy_names"] = policy_names
+            sc, body, url = call_api("POST", api_base_url, "/v1/policies/feature/simulate", payload=sim_payload)
+            render_response("Policy Simulation Response", sc, body, url)
+            if sc == 200 and isinstance(body, dict):
+                sims = body.get("simulations", [])
+                if sims:
+                    st.dataframe(
+                        pd.DataFrame([
+                            {
+                                "Policy": s["policy_name"],
+                                "Version": s["policy_version"],
+                                "Price ($)": f"${s['predicted_price']:,.0f}",
+                                "Completeness": f"{s['completeness_score']:.1%}",
+                            }
+                            for s in sims
+                        ]),
+                        use_container_width=True,
+                    )
 
     st.markdown("---")
 
     # ------------------------------------------------------------------ #
-    # SECTION 5 — Prediction Drill-Down                                  #
+    # SECTION 6 — Prediction Drill-Down                                  #
     # ------------------------------------------------------------------ #
     st.subheader("Prediction Drill-Down")
     prediction_id_input = st.text_input(
